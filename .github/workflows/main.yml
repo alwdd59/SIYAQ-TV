@@ -1,0 +1,36 @@
+name: Build SIYAQ TV APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+
+      - name: Build SIYAQ-TV APK
+        run: gradle assembleRelease --no-daemon
+
+      - name: Rename APK to SIYAQ-TV.apk
+        run: cp app/build/outputs/apk/release/app-release.apk SIYAQ-TV.apk
+
+      - name: Upload Ready APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SIYAQ-TV-APK
+          path: SIYAQ-TV.apk
