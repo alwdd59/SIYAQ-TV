@@ -1,83 +1,380 @@
 package com.siyaq.tv;
 
-import android.app.Service;
+import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Build;
-import android.os.IBinder;
+import android.os.Bundle;
+import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.json.JSONObject;
 
-public class OverlaySubtitleService extends Service {
+import java.util.Random;
 
-    private WindowManager windowManager;
-    private FrameLayout overlayContainer;
-    private TextView subtitleTextView;
-    private GradientDrawable boxBackground;
-    private WebView hiddenMqttBridge;
-    private WindowManager.LayoutParams windowParams;
-    private String currentRoomCode = "";
+public class MainActivity extends Activity {
+
+    private String roomCode;
+    private TextView statusBadge;
+    private TextView statusHintView;
+    private TextView codeView;
+    private WebView qrAndMqttWebView;
+    private Button actionBtn;
+    private boolean isPhonePaired = false;
+
+    // عناصر الطبقة الشفافة العائمة المدمجة بالكامل في نفس الملف
+    private static WindowManager sWindowManager;
+    private static FrameLayout sOverlayContainer;
+    private static TextView sSubtitleTextView;
+    private static GradientDrawable sBoxBackground;
+    private static WindowManager.LayoutParams sWindowParams;
 
     @Override
-    public IBinder onBind(Intent intent) {
-        return null;
-    }
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null || !intent.hasExtra("ROOM_CODE")) {
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-        currentRoomCode = intent.getStringExtra("ROOM_CODE");
-        setupFloatingSubtitleOverlay();
-        setupRealtimeSyncBridge(currentRoomCode);
+        // إيقاف أي خدمة قديمة إن وجدت لأن كل شيء أصبح مدمجاً هنا
+        try {
+            stopService(new Intent(this, OverlaySubtitleService.class));
+        } catch (Exception ignored) {}
 
-        if (intent.hasExtra("INITIAL_PAYLOAD")) {
-            String initJson = intent.getStringExtra("INITIAL_PAYLOAD");
-            if (initJson != null && !initJson.isEmpty()) {
-                handlePayloadOnUiThread(initJson);
+        int num = 10000000 + new Random().nextInt(90000000);
+        roomCode = String.valueOf(num);
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int screenH = dm.heightPixels;
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.parseColor("#090913"));
+        root.setGravity(Gravity.CENTER);
+        int padH = (int) (dm.widthPixels * 0.06f);
+        int padV = (int) (screenH * 0.04f);
+        root.setPadding(padH, padV, padH, padV);
+
+        // 1. الشريط العلوي بشعار SIYAQ الجديد وهوية الهاتف
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(0, 0, 0, 18);
+
+        ImageView logoImg = new ImageView(this);
+        logoImg.setImageBitmap(createSiyaqLogoBitmap(120));
+        int logoSize = Math.max(44, (int) (screenH * 0.065f));
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(logoSize, logoSize);
+        logoLp.setMargins(0, 0, 16, 0);
+        header.addView(logoImg, logoLp);
+
+        TextView brandTitle = new TextView(this);
+        brandTitle.setText("SIYAQ");
+        brandTitle.setTextColor(Color.parseColor("#00F2FE"));
+        brandTitle.setTextSize(26);
+        brandTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(brandTitle);
+
+        TextView tvSubTag = new TextView(this);
+        tvSubTag.setText("  TV");
+        tvSubTag.setTextColor(Color.parseColor("#94A3B8"));
+        tvSubTag.setTextSize(16);
+        tvSubTag.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(tvSubTag, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        statusBadge = new TextView(this);
+        statusBadge.setText("بانتظار اقتران الجوال...");
+        statusBadge.setTextColor(Color.parseColor("#00F2FE"));
+        GradientDrawable badgeBg = new GradientDrawable();
+        badgeBg.setColor(Color.parseColor("#131B2E"));
+        badgeBg.setCornerRadius(40f);
+        badgeBg.setStroke(2, Color.parseColor("#1E293B"));
+        statusBadge.setBackground(badgeBg);
+        statusBadge.setPadding(24, 10, 24, 10);
+        statusBadge.setTextSize(13);
+        statusBadge.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(statusBadge);
+
+        root.addView(header, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // 2. بطاقة الاقتران الوسطى البسيطة
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER);
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(Color.parseColor("#111726"));
+        cardBg.setCornerRadius(32f);
+        cardBg.setStroke(2, Color.parseColor("#1E293B"));
+        card.setBackground(cardBg);
+        card.setPadding(36, 24, 36, 24);
+
+        // إطار الباركود الأبيض المتناسق بحيث يظهر الكود كاملاً 100%
+        int qrBoxSize = Math.min(220, (int) (screenH * 0.36f));
+        LinearLayout qrFrame = new LinearLayout(this);
+        qrFrame.setGravity(Gravity.CENTER);
+        GradientDrawable qrWhiteBg = new GradientDrawable();
+        qrWhiteBg.setColor(Color.WHITE);
+        qrWhiteBg.setCornerRadius(22f);
+        qrFrame.setBackground(qrWhiteBg);
+        qrFrame.setPadding(12, 12, 12, 12);
+
+        qrAndMqttWebView = new WebView(this);
+        qrAndMqttWebView.setVerticalScrollBarEnabled(false);
+        qrAndMqttWebView.setHorizontalScrollBarEnabled(false);
+        WebSettings ws = qrAndMqttWebView.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+
+        qrAndMqttWebView.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void onSyncEvent(final String jsonStr) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        handleIncomingPhoneMessage(jsonStr);
+                    }
+                });
             }
-        }
-        return START_NOT_STICKY;
+        }, "SiyaqTvWaitBridge");
+
+        int innerQrSize = qrBoxSize - 24;
+        qrFrame.addView(qrAndMqttWebView, new LinearLayout.LayoutParams(innerQrSize, innerQrSize));
+        card.addView(qrFrame, new LinearLayout.LayoutParams(qrBoxSize, qrBoxSize));
+
+        codeView = new TextView(this);
+        codeView.setText(roomCode);
+        codeView.setTextColor(Color.parseColor("#00F2FE"));
+        codeView.setTextSize(25);
+        codeView.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        codeView.setGravity(Gravity.CENTER);
+        codeView.setPadding(0, 12, 0, 4);
+        card.addView(codeView);
+
+        statusHintView = new TextView(this);
+        statusHintView.setText("امسح الرمز من موقع SIYAQ في جوالك — ستبدأ الطبقة الشفافة تلقائياً فور الاقتران");
+        statusHintView.setTextColor(Color.parseColor("#94A3B8"));
+        statusHintView.setTextSize(13);
+        statusHintView.setGravity(Gravity.CENTER);
+        statusHintView.setPadding(0, 0, 0, 14);
+        card.addView(statusHintView);
+
+        actionBtn = new Button(this);
+        actionBtn.setFocusable(true);
+        actionBtn.setFocusableInTouchMode(true);
+        actionBtn.setBackgroundResource(R.drawable.tv_btn_focus_selector);
+        actionBtn.setTextColor(getResources().getColorStateList(R.color.tv_btn_text_selector));
+        actionBtn.setTextSize(14);
+        actionBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        actionBtn.setPadding(36, 12, 36, 12);
+        card.addView(actionBtn, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        int cardWidth = Math.min(740, (int) (dm.widthPixels * 0.78f));
+        root.addView(card, new LinearLayout.LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        setContentView(root);
+
+        updateActionButtonState();
+        actionBtn.requestFocus();
+        loadQrAndWaitBridge();
     }
 
-    private void setupFloatingSubtitleOverlay() {
-        if (overlayContainer != null) return;
+    private Bitmap createSiyaqLogoBitmap(int size) {
+        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        float s = size / 100f;
 
-        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bgPaint.setColor(Color.parseColor("#0B0F19"));
+        c.drawRoundRect(new RectF(0, 0, size, size), 22 * s, 22 * s, bgPaint);
+
+        Paint whitePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        whitePaint.setColor(Color.WHITE);
+        whitePaint.setStyle(Paint.Style.FILL);
+
+        Path topPath = new Path();
+        topPath.moveTo(27 * s, 10 * s);
+        topPath.lineTo(59 * s, 10 * s);
+        topPath.lineTo(59 * s, 20 * s);
+        topPath.lineTo(27 * s, 20 * s);
+        topPath.lineTo(27 * s, 40 * s);
+        topPath.lineTo(59 * s, 40 * s);
+        topPath.lineTo(59 * s, 56 * s);
+        topPath.lineTo(49 * s, 56 * s);
+        topPath.lineTo(49 * s, 49 * s);
+        topPath.lineTo(26 * s, 49 * s);
+        topPath.lineTo(17 * s, 40 * s);
+        topPath.lineTo(17 * s, 20 * s);
+        topPath.close();
+        c.drawPath(topPath, whitePaint);
+
+        Paint barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        barPaint.setShader(new LinearGradient(
+                17 * s, 64 * s, 89 * s, 64 * s,
+                Color.parseColor("#1E88E5"),
+                Color.parseColor("#00F2FE"),
+                Shader.TileMode.CLAMP));
+        c.drawRoundRect(new RectF(17 * s, 61 * s, 89 * s, 68.5f * s), 2 * s, 2 * s, barPaint);
+
+        Path botPath = new Path();
+        botPath.moveTo(17 * s, 75 * s);
+        botPath.lineTo(27 * s, 75 * s);
+        botPath.lineTo(27 * s, 85 * s);
+        botPath.lineTo(49 * s, 85 * s);
+        botPath.lineTo(49 * s, 75 * s);
+        botPath.lineTo(89 * s, 75 * s);
+        botPath.lineTo(89 * s, 84 * s);
+        botPath.lineTo(59 * s, 84 * s);
+        botPath.lineTo(59 * s, 87 * s);
+        botPath.lineTo(51 * s, 94 * s);
+        botPath.lineTo(25 * s, 94 * s);
+        botPath.lineTo(17 * s, 86 * s);
+        botPath.close();
+        c.drawPath(botPath, whitePaint);
+
+        return bmp;
+    }
+
+    private void updateActionButtonState() {
+        boolean hasOverlayPerm = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
+        if (!hasOverlayPerm) {
+            actionBtn.setText("تفعيل صلاحية الظهور فوق الألعاب (لمرة واحدة)");
+            actionBtn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName()));
+                    startActivityForResult(intent, 101);
+                }
+            });
+        } else if (isPhonePaired) {
+            actionBtn.setText("إيقاف الطبقة الشفافة وإلغاء الاقتران");
+            actionBtn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    hideOverlayAndUnpair();
+                }
+            });
+        } else {
+            actionBtn.setText("تجديد رمز الاقتران");
+            actionBtn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    int num = 10000000 + new Random().nextInt(90000000);
+                    roomCode = String.valueOf(num);
+                    codeView.setText(roomCode);
+                    loadQrAndWaitBridge();
+                    Toast.makeText(MainActivity.this, "تم تجديد الرمز ✓", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+    }
+
+    private void loadQrAndWaitBridge() {
+        String qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=SIYAQ-TV-" + roomCode;
+        String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1.0'>" +
+                "<style>" +
+                "html,body{margin:0;padding:0;width:100%;height:100%;background:#FFFFFF;display:flex;align-items:center;justify-content:center;overflow:hidden;}" +
+                "img{width:88%;height:88%;object-fit:contain;display:block;}" +
+                "</style>" +
+                "<script src='https://unpkg.com/mqtt/dist/mqtt.min.js'></script>" +
+                "</head><body>" +
+                "<img src='" + qrUrl + "' alt='QR' />" +
+                "<script>" +
+                "try {" +
+                "  const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { keepalive: 20 });" +
+                "  client.on('connect', () => { client.subscribe('siyaq/tv/sec/" + roomCode + "'); });" +
+                "  client.on('message', (t, p) => { SiyaqTvWaitBridge.onSyncEvent(p.toString()); });" +
+                "} catch(e) {}" +
+                "</script></body></html>";
+        qrAndMqttWebView.loadDataWithBaseURL("https://siyaq.app", html, "text/html", "UTF-8", null);
+    }
+
+    private void handleIncomingPhoneMessage(String jsonStr) {
+        try {
+            JSONObject obj = new JSONObject(jsonStr);
+            String type = obj.optString("type", "");
+
+            // عند حذف الصفحة من الجوال أو إلغاء الاقتران تختفي الطبقة الشفافة فوراً
+            if ("UNPAIRED".equals(type)) {
+                hideOverlayAndUnpair();
+                return;
+            }
+
+            if ("PAIRED".equals(type) || "SUB_UPDATE".equals(type)) {
+                if (!isPhonePaired) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                        Toast.makeText(this, "يرجى تفعيل صلاحية الظهور فوق الألعاب أولاً", Toast.LENGTH_LONG).show();
+                        updateActionButtonState();
+                        return;
+                    }
+                    isPhonePaired = true;
+                    showTransparentOverlayWindow();
+                    updateUiForPairingState(true);
+                    Toast.makeText(this, "تم اقتران الجوال وتفعيل شريط الترجمة الشفاف ✓", Toast.LENGTH_SHORT).show();
+                    moveTaskToBack(true);
+                }
+
+                String text = obj.optString("text", "");
+                if (!text.isEmpty() && sSubtitleTextView != null) {
+                    sSubtitleTextView.setText(text);
+                }
+                JSONObject style = obj.optJSONObject("style");
+                if (style != null) {
+                    applyFullSubtitleStyle(style);
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void showTransparentOverlayWindow() {
+        if (sOverlayContainer != null) return;
+
+        sWindowManager = (WindowManager) getApplicationContext().getSystemService(WINDOW_SERVICE);
         DisplayMetrics dm = getResources().getDisplayMetrics();
 
-        overlayContainer = new FrameLayout(this);
-        boxBackground = new GradientDrawable();
-        boxBackground.setColor(Color.argb(225, 18, 18, 26));
-        boxBackground.setCornerRadius(24f);
-        boxBackground.setStroke(2, Color.argb(90, 0, 242, 254));
-        overlayContainer.setBackground(boxBackground);
+        sOverlayContainer = new FrameLayout(getApplicationContext());
+        sBoxBackground = new GradientDrawable();
+        sBoxBackground.setColor(Color.argb(225, 18, 18, 26));
+        sBoxBackground.setCornerRadius(24f);
+        sBoxBackground.setStroke(2, Color.argb(90, 0, 242, 254));
+        sOverlayContainer.setBackground(sBoxBackground);
 
         int initPadV = (int) (14 * dm.density);
         int initPadH = (int) (24 * dm.density);
-        overlayContainer.setPadding(initPadH, initPadV, initPadH, initPadV);
+        sOverlayContainer.setPadding(initPadH, initPadV, initPadH, initPadV);
 
-        subtitleTextView = new TextView(this);
-        subtitleTextView.setText("SIYAQ TV — متصل بالجوال وجاهز للترجمة الفورية");
-        subtitleTextView.setTextColor(Color.WHITE);
-        subtitleTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
-        subtitleTextView.setTypeface(Typeface.DEFAULT_BOLD);
-        subtitleTextView.setGravity(Gravity.CENTER);
+        sSubtitleTextView = new TextView(getApplicationContext());
+        sSubtitleTextView.setText("SIYAQ TV — متصل بالجوال وجاهز للترجمة الفورية");
+        sSubtitleTextView.setTextColor(Color.WHITE);
+        sSubtitleTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+        sSubtitleTextView.setTypeface(Typeface.DEFAULT_BOLD);
+        sSubtitleTextView.setGravity(Gravity.CENTER);
 
-        overlayContainer.addView(subtitleTextView, new FrameLayout.LayoutParams(
+        sOverlayContainer.addView(sSubtitleTextView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER));
@@ -87,7 +384,7 @@ public class OverlaySubtitleService extends Service {
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
         int initialWidth = (int) (dm.widthPixels * 0.85f);
-        windowParams = new WindowManager.LayoutParams(
+        sWindowParams = new WindowManager.LayoutParams(
                 initialWidth,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 layoutFlag,
@@ -96,47 +393,19 @@ public class OverlaySubtitleService extends Service {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
 
-        windowParams.gravity = Gravity.TOP | Gravity.LEFT;
-        windowParams.x = (dm.widthPixels - initialWidth) / 2;
-        windowParams.y = (int) (dm.heightPixels * 0.78f);
+        sWindowParams.gravity = Gravity.TOP | Gravity.LEFT;
+        sWindowParams.x = (dm.widthPixels - initialWidth) / 2;
+        sWindowParams.y = (int) (dm.heightPixels * 0.78f);
 
-        windowManager.addView(overlayContainer, windowParams);
-    }
-
-    private void handlePayloadOnUiThread(String jsonStr) {
-        if (subtitleTextView == null) return;
-        subtitleTextView.post(() -> {
-            try {
-                JSONObject obj = new JSONObject(jsonStr);
-                String type = obj.optString("type", "");
-
-                // إغلاق الطبقة الشفافة فوراً عند إلغاء الاقتران أو حذف/إغلاق الصفحة في الجوال
-                if ("UNPAIRED".equals(type)) {
-                    sendBroadcast(new Intent("com.siyaq.tv.ACTION_UNPAIRED"));
-                    stopSelf();
-                    return;
-                }
-
-                if ("PAIRED".equals(type) || "SUB_UPDATE".equals(type)) {
-                    String text = obj.optString("text", "");
-                    if (!text.isEmpty()) {
-                        subtitleTextView.setText(text);
-                    }
-                    JSONObject style = obj.optJSONObject("style");
-                    if (style != null) {
-                        applyFullSubtitleStyle(style);
-                    }
-                }
-            } catch (Exception ignored) {}
-        });
+        sWindowManager.addView(sOverlayContainer, sWindowParams);
     }
 
     private void applyFullSubtitleStyle(JSONObject style) {
-        if (windowParams == null || overlayContainer == null || subtitleTextView == null) return;
+        if (sWindowParams == null || sOverlayContainer == null || sSubtitleTextView == null) return;
         try {
             DisplayMetrics dm = getResources().getDisplayMetrics();
 
-            // 1. نوع الخط وعرض الخط (عريض / عادي)
+            // 1. نوع الخط وعرضه
             String fontFamilyRaw = style.optString("fontFamily", "Tajawal");
             boolean isBold = style.optBoolean("isBold", true);
             int tfStyle = isBold ? Typeface.BOLD : Typeface.NORMAL;
@@ -153,21 +422,21 @@ public class OverlaySubtitleService extends Service {
                 androidFamily = "serif";
                 letterSpacing = 0.01f;
             }
-            subtitleTextView.setTypeface(Typeface.create(androidFamily, tfStyle));
+            sSubtitleTextView.setTypeface(Typeface.create(androidFamily, tfStyle));
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                subtitleTextView.setLetterSpacing(letterSpacing);
+                sSubtitleTextView.setLetterSpacing(letterSpacing);
             }
 
             // 2. حجم الخط
             int fontSize = style.optInt("fontSize", 22);
-            subtitleTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize * 1.15f);
+            sSubtitleTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize * 1.15f);
 
-            // 3. لون النص وشفافية النص
+            // 3. لون النص وشفافيته
             String textColorStr = style.optString("textColor", "#FFFFFF");
             int textOpacity = style.optInt("textOpacity", 100);
             int parsedTextCol = Color.parseColor(textColorStr);
             int textAlpha = Math.max(30, Math.min(255, (int) (textOpacity * 2.55f)));
-            subtitleTextView.setTextColor(Color.argb(
+            sSubtitleTextView.setTextColor(Color.argb(
                     textAlpha,
                     Color.red(parsedTextCol),
                     Color.green(parsedTextCol),
@@ -179,81 +448,80 @@ public class OverlaySubtitleService extends Service {
             int bgOpacity = style.optInt("bgOpacity", 90);
             int parsedBgCol = Color.parseColor(bgColorStr);
             int bgAlpha = Math.max(0, Math.min(255, (int) (bgOpacity * 2.55f)));
-            boxBackground.setColor(Color.argb(
+            sBoxBackground.setColor(Color.argb(
                     bgAlpha,
                     Color.red(parsedBgCol),
                     Color.green(parsedBgCol),
                     Color.blue(parsedBgCol)
             ));
-            boxBackground.setStroke(bgAlpha > 15 ? 2 : 0, Color.argb(Math.min(110, bgAlpha), 0, 242, 254));
+            sBoxBackground.setStroke(bgAlpha > 15 ? 2 : 0, Color.argb(Math.min(110, bgAlpha), 0, 242, 254));
 
             // 5. عرض وارتفاع الشريط
             int bgWidthPct = Math.max(35, Math.min(100, style.optInt("bgWidth", 85)));
             int bgHeightPx = Math.max(4, Math.min(48, style.optInt("bgHeight", 14)));
             int newWidthPx = (int) (dm.widthPixels * (bgWidthPct / 100f));
-            windowParams.width = newWidthPx;
+            sWindowParams.width = newWidthPx;
 
             int padV = (int) (bgHeightPx * dm.density);
             int padH = (int) (24 * dm.density);
-            overlayContainer.setPadding(padH, padV, padH, padV);
+            sOverlayContainer.setPadding(padH, padV, padH, padV);
 
-            // 6. تحريك موقع الترجمة أفقياً وعمودياً في الشاشة (posX و posY)
+            // 6. تحريك الترجمة أفقياً وعمودياً في الشاشة
             int posX = Math.max(10, Math.min(90, style.optInt("posX", 50)));
             int posY = Math.max(10, Math.min(92, style.optInt("posY", 82)));
 
             int centerX = (int) (dm.widthPixels * (posX / 100f));
-            int targetX = centerX - (newWidthPx / 2);
-            targetX = Math.max(0, Math.min(dm.widthPixels - newWidthPx, targetX));
+            int targetX = Math.max(0, Math.min(dm.widthPixels - newWidthPx, centerX - (newWidthPx / 2)));
 
-            int estBoxHeight = overlayContainer.getHeight() > 0 ? overlayContainer.getHeight() : (int) (72 * dm.density);
+            int estBoxHeight = sOverlayContainer.getHeight() > 0 ? sOverlayContainer.getHeight() : (int) (72 * dm.density);
             int centerY = (int) (dm.heightPixels * (posY / 100f));
-            int targetY = centerY - (estBoxHeight / 2);
-            targetY = Math.max(0, Math.min(dm.heightPixels - estBoxHeight, targetY));
+            int targetY = Math.max(0, Math.min(dm.heightPixels - estBoxHeight, centerY - (estBoxHeight / 2)));
 
-            windowParams.gravity = Gravity.TOP | Gravity.LEFT;
-            windowParams.x = targetX;
-            windowParams.y = targetY;
+            sWindowParams.gravity = Gravity.TOP | Gravity.LEFT;
+            sWindowParams.x = targetX;
+            sWindowParams.y = targetY;
 
-            windowManager.updateViewLayout(overlayContainer, windowParams);
+            sWindowManager.updateViewLayout(sOverlayContainer, sWindowParams);
         } catch (Exception ignored) {}
     }
 
-    private void setupRealtimeSyncBridge(String roomCode) {
-        if (hiddenMqttBridge != null) {
-            hiddenMqttBridge.destroy();
+    private void hideOverlayAndUnpair() {
+        isPhonePaired = false;
+        if (sOverlayContainer != null && sWindowManager != null) {
+            try {
+                sWindowManager.removeView(sOverlayContainer);
+            } catch (Exception ignored) {}
+            sOverlayContainer = null;
         }
-        hiddenMqttBridge = new WebView(this);
-        hiddenMqttBridge.getSettings().setJavaScriptEnabled(true);
-        hiddenMqttBridge.addJavascriptInterface(new Object() {
-            @JavascriptInterface
-            public void onPayload(String jsonStr) {
-                handlePayloadOnUiThread(jsonStr);
-            }
-        }, "AndroidTvBridge");
+        updateUiForPairingState(false);
+        Toast.makeText(this, "توقفت الطبقة الشفافة وتم إلغاء الاقتران ✓", Toast.LENGTH_SHORT).show();
+    }
 
-        String bridgeHtml = "<!DOCTYPE html><html><head>" +
-                "<script src='https://unpkg.com/mqtt/dist/mqtt.min.js'></script>" +
-                "</head><body><script>" +
-                "const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { keepalive: 20 });" +
-                "client.on('connect', () => { client.subscribe('siyaq/tv/sec/" + roomCode + "'); });" +
-                "client.on('message', (t, p) => { AndroidTvBridge.onPayload(p.toString()); });" +
-                "</script></body></html>";
-
-        hiddenMqttBridge.loadDataWithBaseURL("https://siyaq.app", bridgeHtml, "text/html", "UTF-8", null);
+    private void updateUiForPairingState(boolean paired) {
+        if (paired) {
+            statusBadge.setText("● متصل بالجوال — الطبقة الشفافة نشطة");
+            statusBadge.setTextColor(Color.parseColor("#34D399"));
+            statusHintView.setText("تم الاقتران بنجاح! يمكنك الآن العودة لمنفذ اللعبة (HDMI)");
+        } else {
+            statusBadge.setText("بانتظار اقتران الجوال...");
+            statusBadge.setTextColor(Color.parseColor("#00F2FE"));
+            statusHintView.setText("امسح الرمز من موقع SIYAQ في جوالك — ستبدأ الطبقة الشفافة تلقائياً فور الاقتران");
+        }
+        updateActionButtonState();
     }
 
     @Override
-    public void onDestroy() {
+    protected void onResume() {
+        super.onResume();
+        updateActionButtonState();
+    }
+
+    @Override
+    protected void onDestroy() {
         super.onDestroy();
-        if (overlayContainer != null && windowManager != null) {
-            try {
-                windowManager.removeView(overlayContainer);
-            } catch (Exception ignored) {}
-            overlayContainer = null;
-        }
-        if (hiddenMqttBridge != null) {
-            hiddenMqttBridge.destroy();
-            hiddenMqttBridge = null;
+        hideOverlayAndUnpair();
+        if (qrAndMqttWebView != null) {
+            qrAndMqttWebView.destroy();
         }
     }
 }
