@@ -1,6 +1,7 @@
 package com.siyaq.tv;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
@@ -43,6 +44,21 @@ public class MainActivity extends Activity {
     private TextView subtitleTextView;
     private GradientDrawable boxBackground;
     private WindowManager.LayoutParams windowParams;
+
+    // كلاس رسمي عام لاستقبال رسائل الجوال بدون أي خطأ في البناء
+    public class JsBridge {
+        @JavascriptInterface
+        public void onSyncEvent(final String jsonStr) {
+            if (codeView != null) {
+                codeView.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        handleIncomingPhoneMessage(jsonStr);
+                    }
+                });
+            }
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -109,15 +125,7 @@ public class MainActivity extends Activity {
         WebSettings ws = qrAndMqttWebView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
-
-        qrAndMqttWebView.addJavascriptInterface(new Object() {
-            @JavascriptInterface
-            public void onSyncEvent(final String jsonStr) {
-                if (codeView != null) {
-                    codeView.post(() -> handleIncomingPhoneMessage(jsonStr));
-                }
-            }
-        }, "SiyaqTvWaitBridge");
+        qrAndMqttWebView.addJavascriptInterface(new JsBridge(), "SiyaqTvWaitBridge");
 
         card.addView(qrAndMqttWebView, new LinearLayout.LayoutParams(qrBoxSize, qrBoxSize));
 
@@ -164,22 +172,33 @@ public class MainActivity extends Activity {
         boolean hasOverlayPerm = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
         if (!hasOverlayPerm) {
             actionBtn.setText("تفعيل صلاحية الظهور فوق الألعاب (لمرة واحدة)");
-            actionBtn.setOnClickListener(v -> {
-                Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + getPackageName()));
-                startActivityForResult(intent, 101);
+            actionBtn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName()));
+                    startActivityForResult(intent, 101);
+                }
             });
         } else if (isPhonePaired) {
             actionBtn.setText("إيقاف الطبقة الشفافة وإلغاء الاقتران");
-            actionBtn.setOnClickListener(v -> hideOverlayAndUnpair());
+            actionBtn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    hideOverlayAndUnpair();
+                }
+            });
         } else {
             actionBtn.setText("تجديد رمز الاقتران");
-            actionBtn.setOnClickListener(v -> {
-                int num = 10000000 + new Random().nextInt(90000000);
-                roomCode = String.valueOf(num);
-                codeView.setText(roomCode);
-                loadQrAndWaitBridge();
-                Toast.makeText(this, "تم تجديد الرمز ✓", Toast.LENGTH_SHORT).show();
+            actionBtn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    int num = 10000000 + new Random().nextInt(90000000);
+                    roomCode = String.valueOf(num);
+                    codeView.setText(roomCode);
+                    loadQrAndWaitBridge();
+                    Toast.makeText(MainActivity.this, "تم تجديد الرمز ✓", Toast.LENGTH_SHORT).show();
+                }
             });
         }
     }
