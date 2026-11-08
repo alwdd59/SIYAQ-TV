@@ -1,16 +1,8 @@
 package com.siyaq.tv;
 
 import android.app.Activity;
-import android.content.Intent;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.LinearGradient;
-import android.graphics.Paint;
-import android.graphics.Path;
 import android.graphics.PixelFormat;
-import android.graphics.RectF;
-import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -18,7 +10,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
-import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -28,8 +19,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -47,21 +38,15 @@ public class MainActivity extends Activity {
     private Button actionBtn;
     private boolean isPhonePaired = false;
 
-    // عناصر الطبقة الشفافة العائمة المدمجة بالكامل في نفس الملف
-    private static WindowManager sWindowManager;
-    private static FrameLayout sOverlayContainer;
-    private static TextView sSubtitleTextView;
-    private static GradientDrawable sBoxBackground;
-    private static WindowManager.LayoutParams sWindowParams;
+    private WindowManager windowManager;
+    private FrameLayout overlayContainer;
+    private TextView subtitleTextView;
+    private GradientDrawable boxBackground;
+    private WindowManager.LayoutParams windowParams;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        // إيقاف أي خدمة قديمة إن وجدت لأن كل شيء أصبح مدمجاً هنا
-        try {
-            stopService(new Intent(this, OverlaySubtitleService.class));
-        } catch (Exception ignored) {}
 
         int num = 10000000 + new Random().nextInt(90000000);
         roomCode = String.valueOf(num);
@@ -69,47 +54,34 @@ public class MainActivity extends Activity {
         DisplayMetrics dm = getResources().getDisplayMetrics();
         int screenH = dm.heightPixels;
 
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+        scrollView.setBackgroundColor(Color.parseColor("#090913"));
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#090913"));
         root.setGravity(Gravity.CENTER);
-        int padH = (int) (dm.widthPixels * 0.06f);
-        int padV = (int) (screenH * 0.04f);
-        root.setPadding(padH, padV, padH, padV);
+        root.setPadding(48, 28, 48, 28);
 
-        // 1. الشريط العلوي بشعار SIYAQ الجديد وهوية الهاتف
+        // 1. الشريط العلوي بهوية الهاتف
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(0, 0, 0, 18);
-
-        ImageView logoImg = new ImageView(this);
-        logoImg.setImageBitmap(createSiyaqLogoBitmap(120));
-        int logoSize = Math.max(44, (int) (screenH * 0.065f));
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(logoSize, logoSize);
-        logoLp.setMargins(0, 0, 16, 0);
-        header.addView(logoImg, logoLp);
+        header.setPadding(0, 0, 0, 20);
 
         TextView brandTitle = new TextView(this);
-        brandTitle.setText("SIYAQ");
+        brandTitle.setText("SIYAQ TV");
         brandTitle.setTextColor(Color.parseColor("#00F2FE"));
         brandTitle.setTextSize(26);
         brandTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(brandTitle);
-
-        TextView tvSubTag = new TextView(this);
-        tvSubTag.setText("  TV");
-        tvSubTag.setTextColor(Color.parseColor("#94A3B8"));
-        tvSubTag.setTextSize(16);
-        tvSubTag.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(tvSubTag, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        header.addView(brandTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         statusBadge = new TextView(this);
         statusBadge.setText("بانتظار اقتران الجوال...");
         statusBadge.setTextColor(Color.parseColor("#00F2FE"));
         GradientDrawable badgeBg = new GradientDrawable();
         badgeBg.setColor(Color.parseColor("#131B2E"));
-        badgeBg.setCornerRadius(40f);
+        badgeBg.setCornerRadius(30f);
         badgeBg.setStroke(2, Color.parseColor("#1E293B"));
         statusBadge.setBackground(badgeBg);
         statusBadge.setPadding(24, 10, 24, 10);
@@ -120,7 +92,7 @@ public class MainActivity extends Activity {
         root.addView(header, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // 2. بطاقة الاقتران الوسطى البسيطة
+        // 2. البطاقة الوسطى البسيطة (الشعار + الكود الكامل + زر واحد سلس)
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER);
@@ -131,19 +103,9 @@ public class MainActivity extends Activity {
         card.setBackground(cardBg);
         card.setPadding(36, 24, 36, 24);
 
-        // إطار الباركود الأبيض المتناسق بحيث يظهر الكود كاملاً 100%
-        int qrBoxSize = Math.min(220, (int) (screenH * 0.36f));
-        LinearLayout qrFrame = new LinearLayout(this);
-        qrFrame.setGravity(Gravity.CENTER);
-        GradientDrawable qrWhiteBg = new GradientDrawable();
-        qrWhiteBg.setColor(Color.WHITE);
-        qrWhiteBg.setCornerRadius(22f);
-        qrFrame.setBackground(qrWhiteBg);
-        qrFrame.setPadding(12, 12, 12, 12);
-
+        int qrBoxSize = Math.min(250, (int) (screenH * 0.44f));
         qrAndMqttWebView = new WebView(this);
-        qrAndMqttWebView.setVerticalScrollBarEnabled(false);
-        qrAndMqttWebView.setHorizontalScrollBarEnabled(false);
+        qrAndMqttWebView.setBackgroundColor(Color.TRANSPARENT);
         WebSettings ws = qrAndMqttWebView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
@@ -151,23 +113,18 @@ public class MainActivity extends Activity {
         qrAndMqttWebView.addJavascriptInterface(new Object() {
             @JavascriptInterface
             public void onSyncEvent(final String jsonStr) {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        handleIncomingPhoneMessage(jsonStr);
-                    }
-                });
+                if (codeView != null) {
+                    codeView.post(() -> handleIncomingPhoneMessage(jsonStr));
+                }
             }
         }, "SiyaqTvWaitBridge");
 
-        int innerQrSize = qrBoxSize - 24;
-        qrFrame.addView(qrAndMqttWebView, new LinearLayout.LayoutParams(innerQrSize, innerQrSize));
-        card.addView(qrFrame, new LinearLayout.LayoutParams(qrBoxSize, qrBoxSize));
+        card.addView(qrAndMqttWebView, new LinearLayout.LayoutParams(qrBoxSize, qrBoxSize));
 
         codeView = new TextView(this);
         codeView.setText(roomCode);
         codeView.setTextColor(Color.parseColor("#00F2FE"));
-        codeView.setTextSize(25);
+        codeView.setTextSize(26);
         codeView.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         codeView.setGravity(Gravity.CENTER);
         codeView.setPadding(0, 12, 0, 4);
@@ -188,124 +145,66 @@ public class MainActivity extends Activity {
         actionBtn.setTextColor(getResources().getColorStateList(R.color.tv_btn_text_selector));
         actionBtn.setTextSize(14);
         actionBtn.setTypeface(Typeface.DEFAULT_BOLD);
-        actionBtn.setPadding(36, 12, 36, 12);
+        actionBtn.setPadding(36, 14, 36, 14);
         card.addView(actionBtn, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        int cardWidth = Math.min(740, (int) (dm.widthPixels * 0.78f));
+        int cardWidth = Math.min(720, (int) (dm.widthPixels * 0.78f));
         root.addView(card, new LinearLayout.LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        setContentView(root);
+        scrollView.addView(root);
+        setContentView(scrollView);
 
         updateActionButtonState();
         actionBtn.requestFocus();
         loadQrAndWaitBridge();
     }
 
-    private Bitmap createSiyaqLogoBitmap(int size) {
-        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        Canvas c = new Canvas(bmp);
-        float s = size / 100f;
-
-        Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        bgPaint.setColor(Color.parseColor("#0B0F19"));
-        c.drawRoundRect(new RectF(0, 0, size, size), 22 * s, 22 * s, bgPaint);
-
-        Paint whitePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        whitePaint.setColor(Color.WHITE);
-        whitePaint.setStyle(Paint.Style.FILL);
-
-        Path topPath = new Path();
-        topPath.moveTo(27 * s, 10 * s);
-        topPath.lineTo(59 * s, 10 * s);
-        topPath.lineTo(59 * s, 20 * s);
-        topPath.lineTo(27 * s, 20 * s);
-        topPath.lineTo(27 * s, 40 * s);
-        topPath.lineTo(59 * s, 40 * s);
-        topPath.lineTo(59 * s, 56 * s);
-        topPath.lineTo(49 * s, 56 * s);
-        topPath.lineTo(49 * s, 49 * s);
-        topPath.lineTo(26 * s, 49 * s);
-        topPath.lineTo(17 * s, 40 * s);
-        topPath.lineTo(17 * s, 20 * s);
-        topPath.close();
-        c.drawPath(topPath, whitePaint);
-
-        Paint barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        barPaint.setShader(new LinearGradient(
-                17 * s, 64 * s, 89 * s, 64 * s,
-                Color.parseColor("#1E88E5"),
-                Color.parseColor("#00F2FE"),
-                Shader.TileMode.CLAMP));
-        c.drawRoundRect(new RectF(17 * s, 61 * s, 89 * s, 68.5f * s), 2 * s, 2 * s, barPaint);
-
-        Path botPath = new Path();
-        botPath.moveTo(17 * s, 75 * s);
-        botPath.lineTo(27 * s, 75 * s);
-        botPath.lineTo(27 * s, 85 * s);
-        botPath.lineTo(49 * s, 85 * s);
-        botPath.lineTo(49 * s, 75 * s);
-        botPath.lineTo(89 * s, 75 * s);
-        botPath.lineTo(89 * s, 84 * s);
-        botPath.lineTo(59 * s, 84 * s);
-        botPath.lineTo(59 * s, 87 * s);
-        botPath.lineTo(51 * s, 94 * s);
-        botPath.lineTo(25 * s, 94 * s);
-        botPath.lineTo(17 * s, 86 * s);
-        botPath.close();
-        c.drawPath(botPath, whitePaint);
-
-        return bmp;
-    }
-
     private void updateActionButtonState() {
         boolean hasOverlayPerm = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
         if (!hasOverlayPerm) {
             actionBtn.setText("تفعيل صلاحية الظهور فوق الألعاب (لمرة واحدة)");
-            actionBtn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:" + getPackageName()));
-                    startActivityForResult(intent, 101);
-                }
+            actionBtn.setOnClickListener(v -> {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName()));
+                startActivityForResult(intent, 101);
             });
         } else if (isPhonePaired) {
             actionBtn.setText("إيقاف الطبقة الشفافة وإلغاء الاقتران");
-            actionBtn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    hideOverlayAndUnpair();
-                }
-            });
+            actionBtn.setOnClickListener(v -> hideOverlayAndUnpair());
         } else {
             actionBtn.setText("تجديد رمز الاقتران");
-            actionBtn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    int num = 10000000 + new Random().nextInt(90000000);
-                    roomCode = String.valueOf(num);
-                    codeView.setText(roomCode);
-                    loadQrAndWaitBridge();
-                    Toast.makeText(MainActivity.this, "تم تجديد الرمز ✓", Toast.LENGTH_SHORT).show();
-                }
+            actionBtn.setOnClickListener(v -> {
+                int num = 10000000 + new Random().nextInt(90000000);
+                roomCode = String.valueOf(num);
+                codeView.setText(roomCode);
+                loadQrAndWaitBridge();
+                Toast.makeText(this, "تم تجديد الرمز ✓", Toast.LENGTH_SHORT).show();
             });
         }
     }
 
     private void loadQrAndWaitBridge() {
-        String qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=SIYAQ-TV-" + roomCode;
+        String qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=10&data=SIYAQ-TV-" + roomCode;
+        String logoSvg = "<svg width='44' height='44' viewBox='0 0 100 100' style='margin-bottom:8px;'>" +
+                "<path d='M27 10 H59 V20 H27 V40 H59 V56 H49 V49 H26 L17 40 V20 Z' fill='#FFFFFF'/>" +
+                "<rect x='17' y='61' width='72' height='7.5' rx='2' fill='#00F2FE'/>" +
+                "<path d='M17 75 H27 V85 H49 V75 H89 V84 H59 V87 L51 94 H25 L17 86 Z' fill='#FFFFFF'/>" +
+                "</svg>";
+
         String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1.0'>" +
                 "<style>" +
-                "html,body{margin:0;padding:0;width:100%;height:100%;background:#FFFFFF;display:flex;align-items:center;justify-content:center;overflow:hidden;}" +
-                "img{width:88%;height:88%;object-fit:contain;display:block;}" +
+                "html,body{margin:0;padding:0;width:100%;height:100%;background:#111726;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;}" +
+                ".qr-box{background:#FFFFFF;padding:10px;border-radius:18px;width:165px;height:165px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;}" +
+                "img{width:100%;height:100%;object-fit:contain;display:block;}" +
                 "</style>" +
                 "<script src='https://unpkg.com/mqtt/dist/mqtt.min.js'></script>" +
                 "</head><body>" +
-                "<img src='" + qrUrl + "' alt='QR' />" +
+                logoSvg +
+                "<div class='qr-box'><img src='" + qrUrl + "' alt='QR' /></div>" +
                 "<script>" +
                 "try {" +
-                "  const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { keepalive: 20 });" +
+                "  const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');" +
                 "  client.on('connect', () => { client.subscribe('siyaq/tv/sec/" + roomCode + "'); });" +
                 "  client.on('message', (t, p) => { SiyaqTvWaitBridge.onSyncEvent(p.toString()); });" +
                 "} catch(e) {}" +
@@ -318,7 +217,6 @@ public class MainActivity extends Activity {
             JSONObject obj = new JSONObject(jsonStr);
             String type = obj.optString("type", "");
 
-            // عند حذف الصفحة من الجوال أو إلغاء الاقتران تختفي الطبقة الشفافة فوراً
             if ("UNPAIRED".equals(type)) {
                 hideOverlayAndUnpair();
                 return;
@@ -339,8 +237,8 @@ public class MainActivity extends Activity {
                 }
 
                 String text = obj.optString("text", "");
-                if (!text.isEmpty() && sSubtitleTextView != null) {
-                    sSubtitleTextView.setText(text);
+                if (!text.isEmpty() && subtitleTextView != null) {
+                    subtitleTextView.setText(text);
                 }
                 JSONObject style = obj.optJSONObject("style");
                 if (style != null) {
@@ -351,30 +249,27 @@ public class MainActivity extends Activity {
     }
 
     private void showTransparentOverlayWindow() {
-        if (sOverlayContainer != null) return;
+        if (overlayContainer != null) return;
 
-        sWindowManager = (WindowManager) getApplicationContext().getSystemService(WINDOW_SERVICE);
+        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         DisplayMetrics dm = getResources().getDisplayMetrics();
 
-        sOverlayContainer = new FrameLayout(getApplicationContext());
-        sBoxBackground = new GradientDrawable();
-        sBoxBackground.setColor(Color.argb(225, 18, 18, 26));
-        sBoxBackground.setCornerRadius(24f);
-        sBoxBackground.setStroke(2, Color.argb(90, 0, 242, 254));
-        sOverlayContainer.setBackground(sBoxBackground);
+        overlayContainer = new FrameLayout(this);
+        boxBackground = new GradientDrawable();
+        boxBackground.setColor(Color.argb(225, 18, 18, 26));
+        boxBackground.setCornerRadius(24f);
+        boxBackground.setStroke(2, Color.parseColor("#00F2FE"));
+        overlayContainer.setBackground(boxBackground);
+        overlayContainer.setPadding(36, 16, 36, 16);
 
-        int initPadV = (int) (14 * dm.density);
-        int initPadH = (int) (24 * dm.density);
-        sOverlayContainer.setPadding(initPadH, initPadV, initPadH, initPadV);
+        subtitleTextView = new TextView(this);
+        subtitleTextView.setText("SIYAQ TV — متصل بالجوال وجاهز للترجمة الفورية");
+        subtitleTextView.setTextColor(Color.WHITE);
+        subtitleTextView.setTextSize(24);
+        subtitleTextView.setTypeface(Typeface.DEFAULT_BOLD);
+        subtitleTextView.setGravity(Gravity.CENTER);
 
-        sSubtitleTextView = new TextView(getApplicationContext());
-        sSubtitleTextView.setText("SIYAQ TV — متصل بالجوال وجاهز للترجمة الفورية");
-        sSubtitleTextView.setTextColor(Color.WHITE);
-        sSubtitleTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
-        sSubtitleTextView.setTypeface(Typeface.DEFAULT_BOLD);
-        sSubtitleTextView.setGravity(Gravity.CENTER);
-
-        sOverlayContainer.addView(sSubtitleTextView, new FrameLayout.LayoutParams(
+        overlayContainer.addView(subtitleTextView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER));
@@ -384,7 +279,7 @@ public class MainActivity extends Activity {
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
         int initialWidth = (int) (dm.widthPixels * 0.85f);
-        sWindowParams = new WindowManager.LayoutParams(
+        windowParams = new WindowManager.LayoutParams(
                 initialWidth,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 layoutFlag,
@@ -393,105 +288,91 @@ public class MainActivity extends Activity {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
 
-        sWindowParams.gravity = Gravity.TOP | Gravity.LEFT;
-        sWindowParams.x = (dm.widthPixels - initialWidth) / 2;
-        sWindowParams.y = (int) (dm.heightPixels * 0.78f);
+        windowParams.gravity = Gravity.TOP | Gravity.LEFT;
+        windowParams.x = (dm.widthPixels - initialWidth) / 2;
+        windowParams.y = (int) (dm.heightPixels * 0.78f);
 
-        sWindowManager.addView(sOverlayContainer, sWindowParams);
+        windowManager.addView(overlayContainer, windowParams);
     }
 
     private void applyFullSubtitleStyle(JSONObject style) {
-        if (sWindowParams == null || sOverlayContainer == null || sSubtitleTextView == null) return;
+        if (windowParams == null || overlayContainer == null || subtitleTextView == null) return;
         try {
             DisplayMetrics dm = getResources().getDisplayMetrics();
 
-            // 1. نوع الخط وعرضه
             String fontFamilyRaw = style.optString("fontFamily", "Tajawal");
             boolean isBold = style.optBoolean("isBold", true);
             int tfStyle = isBold ? Typeface.BOLD : Typeface.NORMAL;
 
             String androidFamily = "sans-serif";
-            float letterSpacing = 0f;
             if (fontFamilyRaw.contains("Cairo")) {
                 androidFamily = "sans-serif-medium";
-                letterSpacing = 0.02f;
             } else if (fontFamilyRaw.contains("Changa")) {
                 androidFamily = "sans-serif-condensed";
-                letterSpacing = 0.04f;
             } else if (fontFamilyRaw.contains("Almarai")) {
                 androidFamily = "serif";
-                letterSpacing = 0.01f;
             }
-            sSubtitleTextView.setTypeface(Typeface.create(androidFamily, tfStyle));
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                sSubtitleTextView.setLetterSpacing(letterSpacing);
-            }
+            subtitleTextView.setTypeface(Typeface.create(androidFamily, tfStyle));
 
-            // 2. حجم الخط
             int fontSize = style.optInt("fontSize", 22);
-            sSubtitleTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize * 1.15f);
+            subtitleTextView.setTextSize(fontSize * 1.15f);
 
-            // 3. لون النص وشفافيته
             String textColorStr = style.optString("textColor", "#FFFFFF");
             int textOpacity = style.optInt("textOpacity", 100);
             int parsedTextCol = Color.parseColor(textColorStr);
             int textAlpha = Math.max(30, Math.min(255, (int) (textOpacity * 2.55f)));
-            sSubtitleTextView.setTextColor(Color.argb(
+            subtitleTextView.setTextColor(Color.argb(
                     textAlpha,
                     Color.red(parsedTextCol),
                     Color.green(parsedTextCol),
                     Color.blue(parsedTextCol)
             ));
 
-            // 4. لون الخلفية ودرجة التعتيم
             String bgColorStr = style.optString("bgColor", "#12121A");
             int bgOpacity = style.optInt("bgOpacity", 90);
             int parsedBgCol = Color.parseColor(bgColorStr);
             int bgAlpha = Math.max(0, Math.min(255, (int) (bgOpacity * 2.55f)));
-            sBoxBackground.setColor(Color.argb(
+            boxBackground.setColor(Color.argb(
                     bgAlpha,
                     Color.red(parsedBgCol),
                     Color.green(parsedBgCol),
                     Color.blue(parsedBgCol)
             ));
-            sBoxBackground.setStroke(bgAlpha > 15 ? 2 : 0, Color.argb(Math.min(110, bgAlpha), 0, 242, 254));
 
-            // 5. عرض وارتفاع الشريط
             int bgWidthPct = Math.max(35, Math.min(100, style.optInt("bgWidth", 85)));
             int bgHeightPx = Math.max(4, Math.min(48, style.optInt("bgHeight", 14)));
             int newWidthPx = (int) (dm.widthPixels * (bgWidthPct / 100f));
-            sWindowParams.width = newWidthPx;
+            windowParams.width = newWidthPx;
 
             int padV = (int) (bgHeightPx * dm.density);
             int padH = (int) (24 * dm.density);
-            sOverlayContainer.setPadding(padH, padV, padH, padV);
+            overlayContainer.setPadding(padH, padV, padH, padV);
 
-            // 6. تحريك الترجمة أفقياً وعمودياً في الشاشة
             int posX = Math.max(10, Math.min(90, style.optInt("posX", 50)));
             int posY = Math.max(10, Math.min(92, style.optInt("posY", 82)));
 
             int centerX = (int) (dm.widthPixels * (posX / 100f));
             int targetX = Math.max(0, Math.min(dm.widthPixels - newWidthPx, centerX - (newWidthPx / 2)));
 
-            int estBoxHeight = sOverlayContainer.getHeight() > 0 ? sOverlayContainer.getHeight() : (int) (72 * dm.density);
+            int estBoxHeight = (int) (72 * dm.density);
             int centerY = (int) (dm.heightPixels * (posY / 100f));
             int targetY = Math.max(0, Math.min(dm.heightPixels - estBoxHeight, centerY - (estBoxHeight / 2)));
 
-            sWindowParams.gravity = Gravity.TOP | Gravity.LEFT;
-            sWindowParams.x = targetX;
-            sWindowParams.y = targetY;
+            windowParams.gravity = Gravity.TOP | Gravity.LEFT;
+            windowParams.x = targetX;
+            windowParams.y = targetY;
 
-            sWindowManager.updateViewLayout(sOverlayContainer, sWindowParams);
+            windowManager.updateViewLayout(overlayContainer, windowParams);
         } catch (Exception ignored) {}
     }
 
     private void hideOverlayAndUnpair() {
         isPhonePaired = false;
-        if (sOverlayContainer != null && sWindowManager != null) {
+        if (overlayContainer != null && windowManager != null) {
             try {
-                sWindowManager.removeView(sOverlayContainer);
+                windowManager.removeView(overlayContainer);
             } catch (Exception ignored) {}
-            sOverlayContainer = null;
+            overlayContainer = null;
         }
         updateUiForPairingState(false);
         Toast.makeText(this, "توقفت الطبقة الشفافة وتم إلغاء الاقتران ✓", Toast.LENGTH_SHORT).show();
