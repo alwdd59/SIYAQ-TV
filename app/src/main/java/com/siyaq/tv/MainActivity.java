@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -45,7 +46,6 @@ public class MainActivity extends Activity {
     private GradientDrawable boxBackground;
     private WindowManager.LayoutParams windowParams;
 
-    // كلاس رسمي عام لاستقبال رسائل الجوال بدون أي خطأ في البناء
     public class JsBridge {
         @JavascriptInterface
         public void onSyncEvent(final String jsonStr) {
@@ -108,7 +108,7 @@ public class MainActivity extends Activity {
         root.addView(header, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // 2. البطاقة الوسطى البسيطة (الشعار + الكود الكامل + زر واحد سلس)
+        // 2. البطاقة الوسطى البسيطة (الشعار الجديد + الكود الكامل + زر واحد سلس)
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER);
@@ -146,11 +146,11 @@ public class MainActivity extends Activity {
         statusHintView.setPadding(0, 0, 0, 14);
         card.addView(statusHintView);
 
+        // زر الريموت مبرمج بالكامل داخل الجافا بدون الحاجة لأي ملف R.drawable أو R.color خارجي
         actionBtn = new Button(this);
         actionBtn.setFocusable(true);
         actionBtn.setFocusableInTouchMode(true);
-        actionBtn.setBackgroundResource(R.drawable.tv_btn_focus_selector);
-        actionBtn.setTextColor(getResources().getColorStateList(R.color.tv_btn_text_selector));
+        applyRemoteButtonStyle(actionBtn);
         actionBtn.setTextSize(14);
         actionBtn.setTypeface(Typeface.DEFAULT_BOLD);
         actionBtn.setPadding(36, 14, 36, 14);
@@ -166,6 +166,32 @@ public class MainActivity extends Activity {
         updateActionButtonState();
         actionBtn.requestFocus();
         loadQrAndWaitBridge();
+    }
+
+    private void applyRemoteButtonStyle(final Button btn) {
+        GradientDrawable focusedBg = new GradientDrawable();
+        focusedBg.setColor(Color.parseColor("#00F2FE"));
+        focusedBg.setCornerRadius(20f);
+        focusedBg.setStroke(3, Color.WHITE);
+
+        GradientDrawable normalBg = new GradientDrawable();
+        normalBg.setColor(Color.parseColor("#141E34"));
+        normalBg.setCornerRadius(20f);
+        normalBg.setStroke(2, Color.parseColor("#00F2FE"));
+
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_focused}, focusedBg);
+        states.addState(new int[]{android.R.attr.state_pressed}, focusedBg);
+        states.addState(new int[]{}, normalBg);
+
+        btn.setBackground(states);
+        btn.setTextColor(Color.parseColor("#060A14"));
+        btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                btn.setTextColor(hasFocus ? Color.parseColor("#060A14") : Color.WHITE);
+            }
+        });
     }
 
     private void updateActionButtonState() {
