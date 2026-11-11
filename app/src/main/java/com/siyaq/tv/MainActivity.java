@@ -41,22 +41,35 @@ import java.util.Random;
 public class MainActivity extends Activity {
 
     private String roomCode;
+    private boolean isArabic = true;
+    private boolean isPhonePaired = false;
+
     private TextView statusBadge;
     private TextView codeView;
     private WebView qrAndMqttWebView;
-    private boolean isPhonePaired = false;
 
+    private Button langToggleBtn;
+    private Button btnTestBar;
+    private Button btnNewCode;
+    private Button btnPerm;
+    private Button btnUnpair;
+
+    private LinearLayout centerClusterRow;
+    private LinearLayout optionsColumn;
+    private LinearLayout qrColumn;
+
+    // طبقة شفافة ثابتة بحجم الشاشة يتحرك بداخلها شريط الترجمة بسرعة 60fps بدون أي تقطيع
     private WindowManager windowManager;
-    private FrameLayout overlayContainer;
+    private FrameLayout fullScreenOverlayStage;
+    private FrameLayout subtitleBannerBox;
     private TextView subtitleTextView;
     private GradientDrawable boxBackground;
-    private WindowManager.LayoutParams windowParams;
+    private WindowManager.LayoutParams stageWindowParams;
     private PowerManager.WakeLock wakeLock;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private Runnable autoHideTestRunnable;
 
-    // نبض خلفي يمنع نظام التلفزيون من تجميد استقبال الترجمة والإعدادات أثناء اللعب
     private final Runnable keepAliveRunnable = new Runnable() {
         @Override
         public void run() {
@@ -79,15 +92,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    // فيو يرسم شعارك الجديد بالمقاسات الحقيقية المطابقة للصورة 100% (بطن حرف الياء/السين واسع ومتناسق مع هوامش مريحة للزوايا)
-    private class SiyaqLogoView extends View {
+    // فيو مخصص يرسم شعار SIYAQ الجديد (مع حرف الـ I السماوي المتدرج) بأبعاده الهندسية المطابقة للصورة 100%
+    private class SiyaqWordmarkLogoView extends View {
         private final Paint whitePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Path topPath = new Path();
-        private final Path botPath = new Path();
-        private final RectF barRect = new RectF();
+        private final Paint cyanBarPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path sPath = new Path();
+        private final Path yPath = new Path();
+        private final Path aPath = new Path();
+        private final Path qPath = new Path();
+        private final RectF iRect = new RectF();
 
-        public SiyaqLogoView(Context context) {
+        public SiyaqWordmarkLogoView(Context context) {
             super(context);
             whitePaint.setColor(Color.WHITE);
             whitePaint.setStyle(Paint.Style.FILL);
@@ -98,52 +113,86 @@ public class MainActivity extends Activity {
             super.onDraw(c);
             float w = getWidth();
             float h = getHeight();
-            float s = Math.min(w, h) / 100f;
-            float ox = (w - 100f * s) / 2f;
-            float oy = (h - 100f * s) / 2f;
+            // أبعاد الشعار الأساسية: العرض 78 وحدة، الارتفاع 30 وحدة
+            float scale = Math.min(w / 84f, h / 34f);
+            float ox = (w - 100f * scale) / 2f;
+            float oy = (h - 100f * scale) / 2f;
 
-            // 1. القطعة العلوية البيضاء بالمقاس الأصلي
-            topPath.reset();
-            topPath.moveTo(ox + 31.4f * s, oy + 13.1f * s);
-            topPath.lineTo(ox + 54.3f * s, oy + 13.1f * s);
-            topPath.lineTo(ox + 54.3f * s, oy + 20.4f * s);
-            topPath.lineTo(ox + 31.4f * s, oy + 20.4f * s);
-            topPath.lineTo(ox + 31.4f * s, oy + 36.0f * s);
-            topPath.lineTo(ox + 54.3f * s, oy + 36.0f * s);
-            topPath.lineTo(ox + 54.3f * s, oy + 49.1f * s);
-            topPath.lineTo(ox + 47.1f * s, oy + 49.1f * s);
-            topPath.lineTo(ox + 47.1f * s, oy + 43.2f * s);
-            topPath.lineTo(ox + 30.5f * s, oy + 43.2f * s);
-            topPath.lineTo(ox + 24.1f * s, oy + 36.0f * s);
-            topPath.lineTo(ox + 24.1f * s, oy + 20.4f * s);
-            topPath.close();
-            c.drawPath(topPath, whitePaint);
+            // حرف S الهندسي
+            sPath.reset();
+            sPath.moveTo(ox + 11.1f * scale, oy + 35.1f * scale);
+            sPath.lineTo(ox + 24.5f * scale, oy + 35.1f * scale);
+            sPath.lineTo(ox + 24.5f * scale, oy + 39.2f * scale);
+            sPath.lineTo(ox + 14.2f * scale, oy + 39.2f * scale);
+            sPath.lineTo(ox + 14.2f * scale, oy + 46.3f * scale);
+            sPath.lineTo(ox + 25.5f * scale, oy + 46.3f * scale);
+            sPath.lineTo(ox + 25.5f * scale, oy + 64.6f * scale);
+            sPath.lineTo(ox + 11.0f * scale, oy + 64.6f * scale);
+            sPath.lineTo(ox + 11.0f * scale, oy + 59.2f * scale);
+            sPath.lineTo(ox + 21.9f * scale, oy + 59.2f * scale);
+            sPath.lineTo(ox + 21.9f * scale, oy + 51.4f * scale);
+            sPath.lineTo(ox + 11.1f * scale, oy + 51.4f * scale);
+            sPath.close();
+            c.drawPath(sPath, whitePaint);
 
-            // 2. الشريط الأوسط المتدرج بالأزرق السماوي
-            barPaint.setShader(new LinearGradient(
-                    ox + 24.2f * s, oy + 57f * s, ox + 75.7f * s, oy + 57f * s,
-                    Color.parseColor("#1E88E5"),
+            // حرف I السماوي المتدرج (#00F2FE -> #1E78C8)
+            cyanBarPaint.setShader(new LinearGradient(
+                    0, oy + 35.4f * scale, 0, oy + 64.9f * scale,
                     Color.parseColor("#00F2FE"),
+                    Color.parseColor("#1E78C8"),
                     Shader.TileMode.CLAMP));
-            barRect.set(ox + 24.2f * s, oy + 54.7f * s, ox + 75.7f * s, oy + 59.3f * s);
-            c.drawRoundRect(barRect, 1.2f * s, 1.2f * s, barPaint);
+            iRect.set(ox + 29.5f * scale, oy + 35.4f * scale, ox + 34.1f * scale, oy + 64.9f * scale);
+            c.drawRect(iRect, cyanBarPaint);
 
-            // 3. القطعة السفلية البيضاء ببطن واسع وعميق مطابق للصورة المرفقة تماماً
-            botPath.reset();
-            botPath.moveTo(ox + 24.1f * s, oy + 65.1f * s);
-            botPath.lineTo(ox + 31.4f * s, oy + 65.1f * s);
-            botPath.lineTo(ox + 31.4f * s, oy + 79.6f * s);
-            botPath.lineTo(ox + 47.0f * s, oy + 79.6f * s);
-            botPath.lineTo(ox + 47.0f * s, oy + 65.1f * s);
-            botPath.lineTo(ox + 75.7f * s, oy + 65.1f * s);
-            botPath.lineTo(ox + 75.7f * s, oy + 72.3f * s);
-            botPath.lineTo(ox + 54.3f * s, oy + 72.3f * s);
-            botPath.lineTo(ox + 54.3f * s, oy + 79.8f * s);
-            botPath.lineTo(ox + 47.3f * s, oy + 86.8f * s);
-            botPath.lineTo(ox + 30.4f * s, oy + 86.8f * s);
-            botPath.lineTo(ox + 24.1f * s, oy + 79.8f * s);
-            botPath.close();
-            c.drawPath(botPath, whitePaint);
+            // حرف Y الهندسي
+            yPath.reset();
+            yPath.moveTo(ox + 36.3f * scale, oy + 35.4f * scale);
+            yPath.lineTo(ox + 41.3f * scale, oy + 35.4f * scale);
+            yPath.lineTo(ox + 44.3f * scale, oy + 42.7f * scale);
+            yPath.lineTo(ox + 47.4f * scale, oy + 35.4f * scale);
+            yPath.lineTo(ox + 52.9f * scale, oy + 35.4f * scale);
+            yPath.lineTo(ox + 47.3f * scale, oy + 46.4f * scale);
+            yPath.lineTo(ox + 47.3f * scale, oy + 64.9f * scale);
+            yPath.lineTo(ox + 41.4f * scale, oy + 64.9f * scale);
+            yPath.lineTo(ox + 41.4f * scale, oy + 46.4f * scale);
+            yPath.close();
+            c.drawPath(yPath, whitePaint);
+
+            // حرف A الهندسي مع الفتحة الداخلية
+            aPath.reset();
+            aPath.setFillType(Path.FillType.EVEN_ODD);
+            aPath.moveTo(ox + 54.9f * scale, oy + 35.5f * scale);
+            aPath.lineTo(ox + 68.9f * scale, oy + 35.5f * scale);
+            aPath.lineTo(ox + 68.9f * scale, oy + 64.9f * scale);
+            aPath.lineTo(ox + 64.5f * scale, oy + 64.9f * scale);
+            aPath.lineTo(ox + 64.5f * scale, oy + 55.9f * scale);
+            aPath.lineTo(ox + 59.3f * scale, oy + 55.9f * scale);
+            aPath.lineTo(ox + 59.3f * scale, oy + 64.9f * scale);
+            aPath.lineTo(ox + 54.9f * scale, oy + 64.9f * scale);
+            aPath.close();
+            aPath.moveTo(ox + 59.5f * scale, oy + 40.7f * scale);
+            aPath.lineTo(ox + 64.6f * scale, oy + 40.7f * scale);
+            aPath.lineTo(ox + 64.6f * scale, oy + 51.2f * scale);
+            aPath.lineTo(ox + 59.5f * scale, oy + 51.2f * scale);
+            aPath.close();
+            c.drawPath(aPath, whitePaint);
+
+            // حرف Q الهندسي مع الفتحة الداخلية والذيل المائل
+            qPath.reset();
+            qPath.setFillType(Path.FillType.EVEN_ODD);
+            qPath.moveTo(ox + 71.7f * scale, oy + 35.5f * scale);
+            qPath.lineTo(ox + 85.0f * scale, oy + 35.5f * scale);
+            qPath.lineTo(ox + 85.0f * scale, oy + 59.8f * scale);
+            qPath.lineTo(ox + 89.0f * scale, oy + 59.8f * scale);
+            qPath.lineTo(ox + 86.1f * scale, oy + 64.9f * scale);
+            qPath.lineTo(ox + 71.7f * scale, oy + 64.9f * scale);
+            qPath.close();
+            qPath.moveTo(ox + 74.8f * scale, oy + 39.2f * scale);
+            qPath.lineTo(ox + 80.9f * scale, oy + 39.2f * scale);
+            qPath.lineTo(ox + 80.9f * scale, oy + 59.8f * scale);
+            qPath.lineTo(ox + 74.8f * scale, oy + 59.8f * scale);
+            qPath.close();
+            c.drawPath(qPath, whitePaint);
         }
     }
 
@@ -151,7 +200,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // إبقاء شاشة وتراسل التلفزيون نشطاً بأعلى أولوية
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
 
@@ -163,29 +211,61 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) {}
 
-        int num = 10000000 + new Random().nextInt(90000000);
-        roomCode = String.valueOf(num);
+        roomCode = generateRandomRoomCode();
 
         DisplayMetrics dm = getResources().getDisplayMetrics();
         int screenW = dm.widthPixels;
         int screenH = dm.heightPixels;
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#090913"));
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
-        int padH = (int) (screenW * 0.06f);
+        FrameLayout rootFrame = new FrameLayout(this);
+        rootFrame.setBackgroundColor(Color.parseColor("#090913"));
+        int padH = (int) (screenW * 0.05f);
         int padV = (int) (screenH * 0.04f);
-        root.setPadding(padH, padV, padH, padV);
+        rootFrame.setPadding(padH, padV, padH, padV);
 
-        // 1. الشعار فوق في المنتصف بحجم أصغر شوي ومتناسق مع الزوايا
-        LinearLayout topLogoBox = new LinearLayout(this);
-        topLogoBox.setOrientation(LinearLayout.VERTICAL);
-        topLogoBox.setGravity(Gravity.CENTER);
+        // 1. زر تغيير اللغة (فوق يسار) بحروف واضحة بدون خلفية
+        langToggleBtn = new Button(this);
+        langToggleBtn.setText("EN / ع");
+        langToggleBtn.setFocusable(true);
+        langToggleBtn.setFocusableInTouchMode(true);
+        langToggleBtn.setBackgroundColor(Color.TRANSPARENT);
+        langToggleBtn.setTextColor(Color.parseColor("#94A3B8"));
+        langToggleBtn.setTextSize(15);
+        langToggleBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        langToggleBtn.setPadding(20, 10, 20, 10);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            langToggleBtn.setStateListAnimator(null);
+            langToggleBtn.setElevation(0f);
+        }
+        langToggleBtn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                langToggleBtn.setTextColor(hasFocus ? Color.parseColor("#00F2FE") : Color.parseColor("#94A3B8"));
+                langToggleBtn.setTextSize(hasFocus ? 17 : 15);
+            }
+        });
+        langToggleBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                isArabic = !isArabic;
+                applyLanguageAndLayoutDirection();
+            }
+        });
 
-        int logoPx = Math.max(58, (int) (screenH * 0.105f));
-        SiyaqLogoView logoView = new SiyaqLogoView(this);
-        topLogoBox.addView(logoView, new LinearLayout.LayoutParams(logoPx, logoPx));
+        FrameLayout.LayoutParams langLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.LEFT);
+        rootFrame.addView(langToggleBtn, langLp);
+
+        // 2. الشعار الجديد (SIYAQ) فوق في المنتصف + حالة الاتصال تحته
+        LinearLayout topLogoContainer = new LinearLayout(this);
+        topLogoContainer.setOrientation(LinearLayout.VERTICAL);
+        topLogoContainer.setGravity(Gravity.CENTER);
+
+        int logoW = Math.max(150, (int) (screenW * 0.16f));
+        int logoH = Math.max(54, (int) (screenH * 0.085f));
+        SiyaqWordmarkLogoView wordmarkView = new SiyaqWordmarkLogoView(this);
+        topLogoContainer.addView(wordmarkView, new LinearLayout.LayoutParams(logoW, logoH));
 
         statusBadge = new TextView(this);
         statusBadge.setText("غير متصل");
@@ -194,69 +274,26 @@ public class MainActivity extends Activity {
         statusBadge.setTypeface(Typeface.DEFAULT_BOLD);
         statusBadge.setGravity(Gravity.CENTER);
         statusBadge.setPadding(0, 4, 0, 0);
-        topLogoBox.addView(statusBadge);
+        topLogoContainer.addView(statusBadge);
 
-        root.addView(topLogoBox, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        FrameLayout.LayoutParams topLogoLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        rootFrame.addView(topLogoContainer, topLogoLp);
 
-        // 2. الوسط: يسار الخيارات (بدون خلفية) + يمين الكود والباركود
-        LinearLayout centerRow = new LinearLayout(this);
-        centerRow.setOrientation(LinearLayout.HORIZONTAL);
-        centerRow.setGravity(Gravity.CENTER);
+        // 3. الحاوية الوسطى المتقاربة والموزونة في منتصف الشاشة تماماً
+        centerClusterRow = new LinearLayout(this);
+        centerClusterRow.setOrientation(LinearLayout.HORIZONTAL);
+        centerClusterRow.setGravity(Gravity.CENTER);
 
-        // --- القسم الأيسر: الخيارات بدون خلفية ---
-        LinearLayout leftOptionsCol = new LinearLayout(this);
-        leftOptionsCol.setOrientation(LinearLayout.VERTICAL);
-        leftOptionsCol.setGravity(Gravity.CENTER_VERTICAL | Gravity.RIGHT);
-        leftOptionsCol.setPadding(24, 0, 48, 0);
+        // --- عمود الباركود والكود ---
+        qrColumn = new LinearLayout(this);
+        qrColumn.setOrientation(LinearLayout.VERTICAL);
+        qrColumn.setGravity(Gravity.CENTER);
+        qrColumn.setPadding(32, 12, 32, 12);
 
-        Button btnTestBar = createCleanTextButton("اختبار شريط الترجمة", new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                triggerTestSubtitleBanner();
-            }
-        });
-        leftOptionsCol.addView(btnTestBar);
-
-        Button btnNewCode = createCleanTextButton("تجديد رمز الاقتران", new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                int n = 10000000 + new Random().nextInt(90000000);
-                roomCode = String.valueOf(n);
-                codeView.setText(roomCode);
-                loadQrAndWaitBridge();
-                Toast.makeText(MainActivity.this, "تم تجديد الرمز ✓", Toast.LENGTH_SHORT).show();
-            }
-        });
-        leftOptionsCol.addView(btnNewCode);
-
-        Button btnPerm = createCleanTextButton("تفعيل صلاحية الشاشة", new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                requestOverlayPermission();
-            }
-        });
-        leftOptionsCol.addView(btnPerm);
-
-        Button btnStop = createCleanTextButton("إيقاف وإلغاء الاقتران", new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                hideOverlayAndUnpair();
-            }
-        });
-        leftOptionsCol.addView(btnStop);
-
-        centerRow.addView(leftOptionsCol, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.1f));
-
-        // --- القسم الأيمن: الباركود الكامل + رقم الكود ---
-        LinearLayout rightQrCol = new LinearLayout(this);
-        rightQrCol.setOrientation(LinearLayout.VERTICAL);
-        rightQrCol.setGravity(Gravity.CENTER);
-
-        int qrBoxSize = Math.min(220, (int) (screenH * 0.40f));
+        int qrBoxSize = Math.min(215, (int) (screenH * 0.38f));
         qrAndMqttWebView = new WebView(this) {
-            // منع التلفزيون من إيقاف معالج الجافا سكريبت عند الخروج للعبة (HDMI)
             @Override
             protected void onWindowVisibilityChanged(int visibility) {
                 super.onWindowVisibilityChanged(View.VISIBLE);
@@ -268,34 +305,122 @@ public class MainActivity extends Activity {
         WebSettings ws = qrAndMqttWebView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
-        ws.setMediaPlaybackRequiresUserGesture(false);
         qrAndMqttWebView.addJavascriptInterface(new JsBridge(), "SiyaqTvWaitBridge");
 
-        rightQrCol.addView(qrAndMqttWebView, new LinearLayout.LayoutParams(qrBoxSize, qrBoxSize));
+        qrColumn.addView(qrAndMqttWebView, new LinearLayout.LayoutParams(qrBoxSize, qrBoxSize));
 
         codeView = new TextView(this);
         codeView.setText(roomCode);
         codeView.setTextColor(Color.parseColor("#00F2FE"));
-        codeView.setTextSize(25);
+        codeView.setTextSize(24);
         codeView.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         codeView.setGravity(Gravity.CENTER);
-        codeView.setPadding(0, 12, 0, 0);
-        rightQrCol.addView(codeView);
+        codeView.setPadding(0, 10, 0, 0);
+        qrColumn.addView(codeView);
 
-        centerRow.addView(rightQrCol, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.9f));
+        // --- عمود الخيارات (نصوص صافية بدون خلفية، موزونة بجانب الكود) ---
+        optionsColumn = new LinearLayout(this);
+        optionsColumn.setOrientation(LinearLayout.VERTICAL);
+        optionsColumn.setGravity(Gravity.CENTER_VERTICAL);
+        optionsColumn.setPadding(32, 12, 32, 12);
 
-        root.addView(centerRow, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        btnTestBar = createCleanTextButton("اختبار شريط الترجمة", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                triggerTestSubtitleBanner();
+            }
+        });
+        optionsColumn.addView(btnTestBar);
 
-        setContentView(root);
+        btnNewCode = createCleanTextButton("تجديد رمز الاقتران", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                rotateToFreshRoomCode();
+                Toast.makeText(MainActivity.this, isArabic ? "تم تجديد الرمز ✓" : "Code refreshed ✓", Toast.LENGTH_SHORT).show();
+            }
+        });
+        optionsColumn.addView(btnNewCode);
 
+        btnPerm = createCleanTextButton("تفعيل صلاحية الشاشة", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                requestOverlayPermission();
+            }
+        });
+        optionsColumn.addView(btnPerm);
+
+        btnUnpair = createCleanTextButton("إلغاء الاقتران", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                performCleanUnpairAndRotateCode();
+            }
+        });
+        optionsColumn.addView(btnUnpair);
+
+        FrameLayout.LayoutParams centerLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER);
+        centerLp.topMargin = (int) (screenH * 0.04f);
+        rootFrame.addView(centerClusterRow, centerLp);
+
+        setContentView(rootFrame);
+
+        // تطبيق اللغة العربية افتراضياً (الخيارات يمين والكود يسار، قريبين من بعض في المنتصف)
+        applyLanguageAndLayoutDirection();
         btnTestBar.requestFocus();
         loadQrAndWaitBridge();
         uiHandler.post(keepAliveRunnable);
     }
 
-    // إبقاء WebView نشطاً بالكامل حتى عندما يكون التطبيق في الخلفية أثناء اللعب
+    private String generateRandomRoomCode() {
+        int num = 10000000 + new Random().nextInt(90000000);
+        return String.valueOf(num);
+    }
+
+    // تحديث نصوص اللغة وعكس ترتيب الكود والخيارات (عربي: الخيارات يمين والكود يسار | إنجليزي: الخيارات يسار والكود يمين)
+    private void applyLanguageAndLayoutDirection() {
+        centerClusterRow.removeAllViews();
+
+        LinearLayout.LayoutParams colLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        colLp.setMargins(28, 0, 28, 0);
+
+        if (isArabic) {
+            // في العربي: الكود يسار والخيارات يمين
+            centerClusterRow.addView(qrColumn, colLp);
+            centerClusterRow.addView(optionsColumn, colLp);
+
+            btnTestBar.setText("اختبار شريط الترجمة");
+            btnNewCode.setText("تجديد رمز الاقتران");
+            btnPerm.setText("تفعيل صلاحية الشاشة");
+            btnUnpair.setText("إلغاء الاقتران");
+
+            int rightGrav = Gravity.RIGHT | Gravity.CENTER_VERTICAL;
+            btnTestBar.setGravity(rightGrav);
+            btnNewCode.setGravity(rightGrav);
+            btnPerm.setGravity(rightGrav);
+            btnUnpair.setGravity(rightGrav);
+        } else {
+            // في الإنجليزي: الخيارات يسار والكود يمين
+            centerClusterRow.addView(optionsColumn, colLp);
+            centerClusterRow.addView(qrColumn, colLp);
+
+            btnTestBar.setText("Test Subtitle Bar");
+            btnNewCode.setText("Refresh Pair Code");
+            btnPerm.setText("Screen Permission");
+            btnUnpair.setText("Unpair Device");
+
+            int leftGrav = Gravity.LEFT | Gravity.CENTER_VERTICAL;
+            btnTestBar.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
+            btnTestBar.setGravity(leftGrav);
+            btnNewCode.setGravity(leftGrav);
+            btnPerm.setGravity(leftGrav);
+            btnUnpair.setGravity(leftGrav);
+        }
+
+        updateUiForPairingState(isPhonePaired);
+    }
+
     @Override
     protected void onPause() {
         super.onPause();
@@ -320,11 +445,10 @@ public class MainActivity extends Activity {
         btn.setFocusable(true);
         btn.setFocusableInTouchMode(true);
         btn.setBackgroundColor(Color.TRANSPARENT);
-        btn.setTextColor(Color.parseColor("#94A3B8"));
+        btn.setTextColor(Color.parseColor("#E2E8F0"));
         btn.setTextSize(18);
         btn.setTypeface(Typeface.DEFAULT_BOLD);
-        btn.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        btn.setPadding(16, 16, 16, 16);
+        btn.setPadding(16, 14, 16, 14);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             btn.setStateListAnimator(null);
             btn.setElevation(0f);
@@ -332,7 +456,7 @@ public class MainActivity extends Activity {
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, 6, 0, 6);
+        lp.setMargins(0, 4, 0, 4);
         btn.setLayoutParams(lp);
 
         btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
@@ -340,9 +464,9 @@ public class MainActivity extends Activity {
             public void onFocusChange(View v, boolean hasFocus) {
                 if (hasFocus) {
                     btn.setTextColor(Color.parseColor("#00F2FE"));
-                    btn.setTextSize(21);
+                    btn.setTextSize(20);
                 } else {
-                    btn.setTextColor(Color.parseColor("#94A3B8"));
+                    btn.setTextColor(Color.parseColor("#E2E8F0"));
                     btn.setTextSize(18);
                 }
             }
@@ -357,18 +481,20 @@ public class MainActivity extends Activity {
             requestOverlayPermission();
             return;
         }
-        ensureOverlayCreated();
-        if (overlayContainer != null && subtitleTextView != null) {
-            subtitleTextView.setText("اختبار شريط الترجمة — جاهز للعرض فوق اللعبة ✓");
-            overlayContainer.setVisibility(View.VISIBLE);
+        ensureOverlayStageCreated();
+        if (subtitleBannerBox != null && subtitleTextView != null) {
+            subtitleTextView.setText(isArabic
+                    ? "اختبار شريط الترجمة — جاهز للعرض فوق اللعبة ✓"
+                    : "Subtitle Bar Test — Ready over game ✓");
+            subtitleBannerBox.setVisibility(View.VISIBLE);
             if (autoHideTestRunnable != null) {
                 uiHandler.removeCallbacks(autoHideTestRunnable);
             }
             autoHideTestRunnable = new Runnable() {
                 @Override
                 public void run() {
-                    if (overlayContainer != null && !isPhonePaired) {
-                        overlayContainer.setVisibility(View.GONE);
+                    if (subtitleBannerBox != null && !isPhonePaired) {
+                        subtitleBannerBox.setVisibility(View.GONE);
                     }
                 }
             };
@@ -382,7 +508,7 @@ public class MainActivity extends Activity {
                     Uri.parse("package:" + getPackageName()));
             startActivityForResult(intent, 101);
         } else {
-            Toast.makeText(this, "الصلاحية مفعلة ✓", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, isArabic ? "الصلاحية مفعلة ✓" : "Permission Active ✓", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -394,21 +520,22 @@ public class MainActivity extends Activity {
                 "<style>" +
                 "*{margin:0;padding:0;box-sizing:border-box;}" +
                 "html,body{width:100%;height:100%;background:transparent;display:flex;align-items:center;justify-content:center;overflow:hidden;}" +
-                ".card{width:90%;height:90%;background:#FFFFFF;border-radius:20px;display:flex;align-items:center;justify-content:center;padding:12%;}" +
+                ".card{width:92%;height:92%;background:#FFFFFF;border-radius:20px;display:flex;align-items:center;justify-content:center;padding:11%;}" +
                 "img{width:100%;height:100%;object-fit:contain;display:block;image-rendering:pixelated;}" +
                 "</style>" +
                 "<script src='https://unpkg.com/mqtt/dist/mqtt.min.js'></script>" +
                 "</head><body>" +
                 "<div class='card'><img src='" + qrUrl + "' alt='QR' /></div>" +
                 "<script>" +
+                "window.mqttClient = null;" +
                 "try {" +
-                "  const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {" +
+                "  window.mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {" +
                 "    keepalive: 15," +
                 "    reconnectPeriod: 800," +
                 "    clean: true" +
                 "  });" +
-                "  client.on('connect', () => { client.subscribe('siyaq/tv/sec/" + roomCode + "'); });" +
-                "  client.on('message', (t, p) => { SiyaqTvWaitBridge.onSyncEvent(p.toString()); });" +
+                "  window.mqttClient.on('connect', () => { window.mqttClient.subscribe('siyaq/tv/sec/" + roomCode + "'); });" +
+                "  window.mqttClient.on('message', (t, p) => { SiyaqTvWaitBridge.onSyncEvent(p.toString()); });" +
                 "} catch(e) {}" +
                 "</script></body></html>";
         qrAndMqttWebView.loadDataWithBaseURL("https://siyaq.app", html, "text/html", "UTF-8", null);
@@ -419,75 +546,95 @@ public class MainActivity extends Activity {
             JSONObject obj = new JSONObject(jsonStr);
             String type = obj.optString("type", "");
 
-            // عند إلغاء الاقتران أو حذف الصفحة من الجوال
+            // عند إلغاء الاقتران من الجوال، نلغي الاقتران ونولد كود جديد فوراً حتى لا يعيد الاقتران تلقائياً أبداً
             if ("UNPAIRED".equals(type)) {
-                hideOverlayAndUnpair();
+                hideOverlayStage();
+                isPhonePaired = false;
+                updateUiForPairingState(false);
+                rotateToFreshRoomCode();
+                Toast.makeText(this, isArabic ? "تم إلغاء الاقتران ✓" : "Unpaired ✓", Toast.LENGTH_SHORT).show();
                 return;
             }
 
-            // عند توقف الترجمة في الجوال أو انتهاء جملة الحوار يختفي الشريط من التلفزيون فوراً ولا يعلق
             if ("SUB_CLEAR".equals(type)) {
-                if (overlayContainer != null) {
+                if (subtitleBannerBox != null) {
                     subtitleTextView.setText("");
-                    overlayContainer.setVisibility(View.GONE);
+                    subtitleBannerBox.setVisibility(View.GONE);
                 }
                 return;
             }
 
-            if ("PAIRED".equals(type) || "SUB_UPDATE".equals(type)) {
+            // لا يبدأ الاقتران إلا برسالة PAIRED صريحة، ولا تعيد رسائل SUB_UPDATE المتأخرة فتح الاقتران بعد إلغائه
+            if ("PAIRED".equals(type)) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-                    Toast.makeText(this, "يرجى الضغط على تفعيل صلاحية الشاشة أولاً", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, isArabic ? "يرجى تفعيل صلاحية الشاشة أولاً" : "Please enable screen permission first", Toast.LENGTH_LONG).show();
                     return;
                 }
 
-                ensureOverlayCreated();
-
-                if (!isPhonePaired) {
-                    isPhonePaired = true;
-                    updateUiForPairingState(true);
-                    Toast.makeText(this, "تم الاقتران بالجوال ✓", Toast.LENGTH_SHORT).show();
-                    moveTaskToBack(true);
-                }
+                isPhonePaired = true;
+                ensureOverlayStageCreated();
+                updateUiForPairingState(true);
 
                 JSONObject style = obj.optJSONObject("style");
                 if (style != null) {
-                    applyFullSubtitleStyle(style);
+                    applySmoothHardwareSubtitleStyle(style);
                 }
 
-                if ("SUB_UPDATE".equals(type)) {
-                    String text = obj.optString("text", "").trim();
-                    if (text.isEmpty()
-                            || "في انتظار الترجمات".equals(text)
-                            || "الترجمة متوقفة".equals(text)
-                            || "Waiting for subtitles".equals(text)
-                            || "Translation Paused".equals(text)) {
-                        subtitleTextView.setText("");
-                        overlayContainer.setVisibility(View.GONE);
-                    } else {
-                        subtitleTextView.setText(text);
-                        overlayContainer.setVisibility(View.VISIBLE);
-                    }
-                } else if ("PAIRED".equals(type)) {
-                    // عند الاقتران فقط يبقى الشريط مخفياً حتى يبدأ الجوال بالترجمة الفعلية
-                    overlayContainer.setVisibility(View.GONE);
+                // إظهار الشريط في التلفزيون فور الاقتران كما طلب المستخدم
+                subtitleTextView.setText(isArabic ? "متصل بالجوال — جاهز للترجمة الفورية ✓" : "Connected to Phone — Ready for Live Translation ✓");
+                subtitleBannerBox.setVisibility(View.VISIBLE);
+
+                Toast.makeText(this, isArabic ? "تم الاقتران بالجوال ✓" : "Paired with Phone ✓", Toast.LENGTH_SHORT).show();
+                moveTaskToBack(true);
+                return;
+            }
+
+            if ("SUB_UPDATE".equals(type)) {
+                if (!isPhonePaired) {
+                    // تجاهل أي رسالة تحديث قديمة إذا كان الجهاز غير مقترن لمنع إعادة الاقتران التلقائي
+                    return;
+                }
+
+                ensureOverlayStageCreated();
+
+                JSONObject style = obj.optJSONObject("style");
+                if (style != null) {
+                    applySmoothHardwareSubtitleStyle(style);
+                }
+
+                String text = obj.optString("text", "").trim();
+                if (text.isEmpty()
+                        || "في انتظار الترجمات".equals(text)
+                        || "الترجمة متوقفة".equals(text)
+                        || "Waiting for subtitles".equals(text)
+                        || "Translation Paused".equals(text)) {
+                    subtitleTextView.setText("");
+                    subtitleBannerBox.setVisibility(View.GONE);
+                } else {
+                    subtitleTextView.setText(text);
+                    subtitleBannerBox.setVisibility(View.VISIBLE);
                 }
             }
         } catch (Exception ignored) {}
     }
 
-    private void ensureOverlayCreated() {
-        if (overlayContainer != null) return;
+    // إنشاء مسرح شفاف ثابت بحجم الشاشة ليتحرك بداخله شريط الترجمة بنعومة 60 إطار/ثانية بدون أي تقطيع
+    private void ensureOverlayStageCreated() {
+        if (fullScreenOverlayStage != null) return;
 
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         DisplayMetrics dm = getResources().getDisplayMetrics();
 
-        overlayContainer = new FrameLayout(this);
+        fullScreenOverlayStage = new FrameLayout(this);
+        fullScreenOverlayStage.setBackgroundColor(Color.TRANSPARENT);
+
+        subtitleBannerBox = new FrameLayout(this);
         boxBackground = new GradientDrawable();
         boxBackground.setColor(Color.argb(225, 18, 18, 26));
         boxBackground.setCornerRadius(24f);
-        overlayContainer.setBackground(boxBackground);
-        overlayContainer.setPadding(36, 16, 36, 16);
-        overlayContainer.setVisibility(View.GONE);
+        subtitleBannerBox.setBackground(boxBackground);
+        subtitleBannerBox.setPadding(36, 16, 36, 16);
+        subtitleBannerBox.setVisibility(View.GONE);
 
         subtitleTextView = new TextView(this);
         subtitleTextView.setText("");
@@ -496,19 +643,28 @@ public class MainActivity extends Activity {
         subtitleTextView.setTypeface(Typeface.DEFAULT_BOLD);
         subtitleTextView.setGravity(Gravity.CENTER);
 
-        overlayContainer.addView(subtitleTextView, new FrameLayout.LayoutParams(
+        subtitleBannerBox.addView(subtitleTextView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER));
+
+        int initialWidth = (int) (dm.widthPixels * 0.85f);
+        FrameLayout.LayoutParams bannerLp = new FrameLayout.LayoutParams(
+                initialWidth,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.LEFT);
+        fullScreenOverlayStage.addView(subtitleBannerBox, bannerLp);
+
+        subtitleBannerBox.setTranslationX((dm.widthPixels - initialWidth) / 2f);
+        subtitleBannerBox.setTranslationY(dm.heightPixels * 0.78f);
 
         int layoutFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
-        int initialWidth = (int) (dm.widthPixels * 0.85f);
-        windowParams = new WindowManager.LayoutParams(
-                initialWidth,
-                WindowManager.LayoutParams.WRAP_CONTENT,
+        stageWindowParams = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
                 layoutFlag,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
@@ -516,15 +672,13 @@ public class MainActivity extends Activity {
                         | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                 PixelFormat.TRANSLUCENT);
 
-        windowParams.gravity = Gravity.TOP | Gravity.LEFT;
-        windowParams.x = (dm.widthPixels - initialWidth) / 2;
-        windowParams.y = (int) (dm.heightPixels * 0.78f);
-
-        windowManager.addView(overlayContainer, windowParams);
+        stageWindowParams.gravity = Gravity.TOP | Gravity.LEFT;
+        windowManager.addView(fullScreenOverlayStage, stageWindowParams);
     }
 
-    private void applyFullSubtitleStyle(JSONObject style) {
-        if (windowParams == null || overlayContainer == null || subtitleTextView == null) return;
+    // تحريك وتحديث فوري على كرت الشاشة (GPU Translation) بدون استدعاء WindowManager الثقيل نهائياً
+    private void applySmoothHardwareSubtitleStyle(JSONObject style) {
+        if (fullScreenOverlayStage == null || subtitleBannerBox == null || subtitleTextView == null) return;
         try {
             DisplayMetrics dm = getResources().getDisplayMetrics();
 
@@ -570,48 +724,77 @@ public class MainActivity extends Activity {
             int bgWidthPct = Math.max(35, Math.min(100, style.optInt("bgWidth", 85)));
             int bgHeightPx = Math.max(4, Math.min(48, style.optInt("bgHeight", 14)));
             int newWidthPx = (int) (dm.widthPixels * (bgWidthPct / 100f));
-            windowParams.width = newWidthPx;
+
+            FrameLayout.LayoutParams bannerLp = (FrameLayout.LayoutParams) subtitleBannerBox.getLayoutParams();
+            if (bannerLp.width != newWidthPx) {
+                bannerLp.width = newWidthPx;
+                subtitleBannerBox.setLayoutParams(bannerLp);
+            }
 
             int padV = (int) (bgHeightPx * dm.density);
             int padH = (int) (24 * dm.density);
-            overlayContainer.setPadding(padH, padV, padH, padV);
+            subtitleBannerBox.setPadding(padH, padV, padH, padV);
 
+            // تحريك فوري فائق النعومة باستخدام GPU TranslationX / TranslationY
             int posX = Math.max(10, Math.min(90, style.optInt("posX", 50)));
             int posY = Math.max(10, Math.min(92, style.optInt("posY", 82)));
 
-            int centerX = (int) (dm.widthPixels * (posX / 100f));
-            int targetX = Math.max(0, Math.min(dm.widthPixels - newWidthPx, centerX - (newWidthPx / 2)));
+            float centerX = dm.widthPixels * (posX / 100f);
+            float targetX = Math.max(0f, Math.min(dm.widthPixels - newWidthPx, centerX - (newWidthPx / 2f)));
 
-            int estBoxHeight = overlayContainer.getHeight() > 0 ? overlayContainer.getHeight() : (int) (72 * dm.density);
-            int centerY = (int) (dm.heightPixels * (posY / 100f));
-            int targetY = Math.max(0, Math.min(dm.heightPixels - estBoxHeight, centerY - (estBoxHeight / 2)));
+            float estBoxHeight = subtitleBannerBox.getHeight() > 0 ? subtitleBannerBox.getHeight() : (72f * dm.density);
+            float centerY = dm.heightPixels * (posY / 100f);
+            float targetY = Math.max(0f, Math.min(dm.heightPixels - estBoxHeight, centerY - (estBoxHeight / 2f)));
 
-            windowParams.gravity = Gravity.TOP | Gravity.LEFT;
-            windowParams.x = targetX;
-            windowParams.y = targetY;
-
-            windowManager.updateViewLayout(overlayContainer, windowParams);
+            subtitleBannerBox.setTranslationX(targetX);
+            subtitleBannerBox.setTranslationY(targetY);
         } catch (Exception ignored) {}
     }
 
-    private void hideOverlayAndUnpair() {
-        isPhonePaired = false;
-        if (overlayContainer != null && windowManager != null) {
-            try {
-                windowManager.removeView(overlayContainer);
-            } catch (Exception ignored) {}
-            overlayContainer = null;
+    private void rotateToFreshRoomCode() {
+        roomCode = generateRandomRoomCode();
+        if (codeView != null) {
+            codeView.setText(roomCode);
         }
+        loadQrAndWaitBridge();
+    }
+
+    // إلغاء الاقتران من التلفزيون مع إشعار الجوال وتغيير الكود فوراً لمنع إعادة الاقتران التلقائي
+    private void performCleanUnpairAndRotateCode() {
+        isPhonePaired = false;
+        if (qrAndMqttWebView != null) {
+            qrAndMqttWebView.evaluateJavascript(
+                    "if(window.mqttClient && window.mqttClient.connected){ window.mqttClient.publish('siyaq/tv/sec/" + roomCode + "', JSON.stringify({type:'UNPAIRED'})); }",
+                    null);
+        }
+        hideOverlayStage();
         updateUiForPairingState(false);
-        Toast.makeText(this, "تم إلغاء الاقتران ✓", Toast.LENGTH_SHORT).show();
+        uiHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                rotateToFreshRoomCode();
+            }
+        }, 180);
+        Toast.makeText(this, isArabic ? "تم إلغاء الاقتران ✓" : "Unpaired ✓", Toast.LENGTH_SHORT).show();
+    }
+
+    private void hideOverlayStage() {
+        if (fullScreenOverlayStage != null && windowManager != null) {
+            try {
+                windowManager.removeView(fullScreenOverlayStage);
+            } catch (Exception ignored) {}
+            fullScreenOverlayStage = null;
+            subtitleBannerBox = null;
+            subtitleTextView = null;
+        }
     }
 
     private void updateUiForPairingState(boolean paired) {
         if (paired) {
-            statusBadge.setText("● متصل بالجوال");
+            statusBadge.setText(isArabic ? "● متصل بالجوال" : "● Phone Connected");
             statusBadge.setTextColor(Color.parseColor("#00F2FE"));
         } else {
-            statusBadge.setText("غير متصل");
+            statusBadge.setText(isArabic ? "غير متصل" : "Not Connected");
             statusBadge.setTextColor(Color.parseColor("#94A3B8"));
         }
     }
@@ -625,7 +808,7 @@ public class MainActivity extends Activity {
                 wakeLock.release();
             } catch (Exception ignored) {}
         }
-        hideOverlayAndUnpair();
+        hideOverlayStage();
         if (qrAndMqttWebView != null) {
             qrAndMqttWebView.destroy();
         }
