@@ -1,27 +1,35 @@
 package com.siyaq.tv;
 
 import android.app.Activity;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.res.ColorStateList;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PixelFormat;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -32,262 +40,513 @@ import java.util.Random;
 
 public class MainActivity extends Activity {
 
+    // ===== هوية SIYAQ: البرتقالي =====
+    private static final String COLOR_ACCENT = "#F5A623";
+    private static final String COLOR_ACCENT_LIGHT = "#FFC857";
+    private static final String COLOR_ACCENT_DARK = "#D98200";
+    private static final String COLOR_BG = "#050507";
+    private static final String COLOR_TEXT = "#FFFFFF";
+    private static final String COLOR_TEXT_SOFT = "#C5CCD8";
+
     private String roomCode;
-    private TextView statusBadge;
-    private TextView statusHintView;
-    private TextView codeView;
-    private WebView qrAndMqttWebView;
-    private Button actionBtn;
+    private boolean isArabic = true;
     private boolean isPhonePaired = false;
 
-    private final BroadcastReceiver unpairReceiver = new BroadcastReceiver() {
+    private TextView statusBadge;
+    private TextView codeView;
+    private WebView qrAndMqttWebView;
+
+    private Button langToggleBtn;
+    private Button btnTestBar;
+    private Button btnNewCode;
+    private Button btnPerm;
+    private Button btnUnpair;
+
+    private LinearLayout centerClusterRow;
+    private LinearLayout optionsColumn;
+    private LinearLayout qrColumn;
+
+    // طبقة شفافة ثابتة بحجم الشاشة يتحرك بداخلها شريط الترجمة بسرعة 60fps بدون أي تقطيع
+    private WindowManager windowManager;
+    private FrameLayout fullScreenOverlayStage;
+    private FrameLayout subtitleBannerBox;
+    private TextView subtitleTextView;
+    private GradientDrawable boxBackground;
+    private WindowManager.LayoutParams stageWindowParams;
+    private PowerManager.WakeLock wakeLock;
+
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private Runnable autoHideTestRunnable;
+
+    private final Runnable keepAliveRunnable = new Runnable() {
         @Override
-        public void onReceive(Context context, Intent intent) {
-            isPhonePaired = false;
-            updateUiForPairingState(false);
+        public void run() {
+            if (qrAndMqttWebView != null) {
+                qrAndMqttWebView.resumeTimers();
+            }
+            uiHandler.postDelayed(this, 800);
         }
     };
+
+    public class JsBridge {
+        @JavascriptInterface
+        public void onSyncEvent(final String jsonStr) {
+            uiHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    handleIncomingPhoneMessage(jsonStr);
+                }
+            });
+        }
+    }
+
+    // خط واضح وعريض لكل النصوص
+    private Typeface strongFont() {
+        return Typeface.create("sans-serif-medium", Typeface.BOLD);
+    }
+
+    // فيو مخصص يرسم شعار SIYAQ (حرف الـ I بتدرج برتقالي)
+    private class SiyaqWordmarkLogoView extends View {
+        private final Paint whitePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint accentBarPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path sPath = new Path();
+        private final Path yPath = new Path();
+        private final Path aPath = new Path();
+        private final Path qPath = new Path();
+        private final RectF iRect = new RectF();
+
+        public SiyaqWordmarkLogoView(Context context) {
+            super(context);
+            whitePaint.setColor(Color.WHITE);
+            whitePaint.setStyle(Paint.Style.FILL);
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            super.onDraw(c);
+            float w = getWidth();
+            float h = getHeight();
+            float scale = Math.min(w / 84f, h / 34f);
+            float ox = (w - 100f * scale) / 2f;
+            float oy = (h - 100f * scale) / 2f;
+
+            // حرف S
+            sPath.reset();
+            sPath.moveTo(ox + 11.1f * scale, oy + 35.1f * scale);
+            sPath.lineTo(ox + 24.5f * scale, oy + 35.1f * scale);
+            sPath.lineTo(ox + 24.5f * scale, oy + 39.2f * scale);
+            sPath.lineTo(ox + 14.2f * scale, oy + 39.2f * scale);
+            sPath.lineTo(ox + 14.2f * scale, oy + 46.3f * scale);
+            sPath.lineTo(ox + 25.5f * scale, oy + 46.3f * scale);
+            sPath.lineTo(ox + 25.5f * scale, oy + 64.6f * scale);
+            sPath.lineTo(ox + 11.0f * scale, oy + 64.6f * scale);
+            sPath.lineTo(ox + 11.0f * scale, oy + 59.2f * scale);
+            sPath.lineTo(ox + 21.9f * scale, oy + 59.2f * scale);
+            sPath.lineTo(ox + 21.9f * scale, oy + 51.4f * scale);
+            sPath.lineTo(ox + 11.1f * scale, oy + 51.4f * scale);
+            sPath.close();
+            c.drawPath(sPath, whitePaint);
+
+            // حرف I البرتقالي المتدرج
+            accentBarPaint.setShader(new LinearGradient(
+                    0, oy + 35.4f * scale, 0, oy + 64.9f * scale,
+                    Color.parseColor(COLOR_ACCENT_LIGHT),
+                    Color.parseColor(COLOR_ACCENT),
+                    Shader.TileMode.CLAMP));
+            iRect.set(ox + 29.5f * scale, oy + 35.4f * scale, ox + 34.1f * scale, oy + 64.9f * scale);
+            c.drawRect(iRect, accentBarPaint);
+
+            // حرف Y
+            yPath.reset();
+            yPath.moveTo(ox + 36.3f * scale, oy + 35.4f * scale);
+            yPath.lineTo(ox + 41.3f * scale, oy + 35.4f * scale);
+            yPath.lineTo(ox + 44.3f * scale, oy + 42.7f * scale);
+            yPath.lineTo(ox + 47.4f * scale, oy + 35.4f * scale);
+            yPath.lineTo(ox + 52.9f * scale, oy + 35.4f * scale);
+            yPath.lineTo(ox + 47.3f * scale, oy + 46.4f * scale);
+            yPath.lineTo(ox + 47.3f * scale, oy + 64.9f * scale);
+            yPath.lineTo(ox + 41.4f * scale, oy + 64.9f * scale);
+            yPath.lineTo(ox + 41.4f * scale, oy + 46.4f * scale);
+            yPath.close();
+            c.drawPath(yPath, whitePaint);
+
+            // حرف A
+            aPath.reset();
+            aPath.setFillType(Path.FillType.EVEN_ODD);
+            aPath.moveTo(ox + 54.9f * scale, oy + 35.5f * scale);
+            aPath.lineTo(ox + 68.9f * scale, oy + 35.5f * scale);
+            aPath.lineTo(ox + 68.9f * scale, oy + 64.9f * scale);
+            aPath.lineTo(ox + 64.5f * scale, oy + 64.9f * scale);
+            aPath.lineTo(ox + 64.5f * scale, oy + 55.9f * scale);
+            aPath.lineTo(ox + 59.3f * scale, oy + 55.9f * scale);
+            aPath.lineTo(ox + 59.3f * scale, oy + 64.9f * scale);
+            aPath.lineTo(ox + 54.9f * scale, oy + 64.9f * scale);
+            aPath.close();
+            aPath.moveTo(ox + 59.5f * scale, oy + 40.7f * scale);
+            aPath.lineTo(ox + 64.6f * scale, oy + 40.7f * scale);
+            aPath.lineTo(ox + 64.6f * scale, oy + 51.2f * scale);
+            aPath.lineTo(ox + 59.5f * scale, oy + 51.2f * scale);
+            aPath.close();
+            c.drawPath(aPath, whitePaint);
+
+            // حرف Q
+            qPath.reset();
+            qPath.setFillType(Path.FillType.EVEN_ODD);
+            qPath.moveTo(ox + 71.7f * scale, oy + 35.5f * scale);
+            qPath.lineTo(ox + 85.0f * scale, oy + 35.5f * scale);
+            qPath.lineTo(ox + 85.0f * scale, oy + 59.8f * scale);
+            qPath.lineTo(ox + 89.0f * scale, oy + 59.8f * scale);
+            qPath.lineTo(ox + 86.1f * scale, oy + 64.9f * scale);
+            qPath.lineTo(ox + 71.7f * scale, oy + 64.9f * scale);
+            qPath.close();
+            qPath.moveTo(ox + 74.8f * scale, oy + 39.2f * scale);
+            qPath.lineTo(ox + 80.9f * scale, oy + 39.2f * scale);
+            qPath.lineTo(ox + 80.9f * scale, oy + 59.8f * scale);
+            qPath.lineTo(ox + 74.8f * scale, oy + 59.8f * scale);
+            qPath.close();
+            c.drawPath(qPath, whitePaint);
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        int num = 10000000 + new Random().nextInt(90000000);
-        roomCode = String.valueOf(num);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().getDecorView().setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+
+        try {
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (pm != null) {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "siyaq:tvsync");
+                wakeLock.acquire();
+            }
+        } catch (Exception ignored) {}
+
+        roomCode = generateRandomRoomCode();
 
         DisplayMetrics dm = getResources().getDisplayMetrics();
+        int screenW = dm.widthPixels;
         int screenH = dm.heightPixels;
 
-        // الخلفية السوداء المطفية الجديدة (#050507) المتطابقة مع هوية الجوال الجديدة
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#050507"));
-        root.setGravity(Gravity.CENTER);
-        int padH = (int) (dm.widthPixels * 0.06f);
-        int padV = (int) (screenH * 0.05f);
-        root.setPadding(padH, padV, padH, padV);
+        FrameLayout rootFrame = new FrameLayout(this);
+        rootFrame.setBackgroundColor(Color.parseColor(COLOR_BG));
+        int padH = (int) (screenW * 0.05f);
+        int padV = (int) (screenH * 0.04f);
+        rootFrame.setPadding(padH, padV, padH, padV);
 
-        // 1. الشريط العلوي: شعار SIYAQ باللون البرتقالي الذهبي الجديد (#F5A623) + شارة الحالة
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(0, 0, 0, 26);
+        // 1. زر تغيير اللغة (فوق يسار)
+        langToggleBtn = new Button(this);
+        langToggleBtn.setText("EN / ع");
+        langToggleBtn.setFocusable(true);
+        langToggleBtn.setFocusableInTouchMode(true);
+        langToggleBtn.setBackgroundColor(Color.TRANSPARENT);
+        langToggleBtn.setTextColor(Color.parseColor(COLOR_TEXT_SOFT));
+        langToggleBtn.setTextSize(16);
+        langToggleBtn.setTypeface(strongFont());
+        langToggleBtn.setPadding(20, 10, 20, 10);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            langToggleBtn.setStateListAnimator(null);
+            langToggleBtn.setElevation(0f);
+        }
+        langToggleBtn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                langToggleBtn.setTextColor(hasFocus ? Color.parseColor(COLOR_ACCENT) : Color.parseColor(COLOR_TEXT_SOFT));
+                langToggleBtn.setTextSize(hasFocus ? 18 : 16);
+            }
+        });
+        langToggleBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                isArabic = !isArabic;
+                applyLanguageAndLayoutDirection();
+            }
+        });
 
-        LinearLayout brandLogoWrap = new LinearLayout(this);
-        brandLogoWrap.setOrientation(LinearLayout.HORIZONTAL);
-        brandLogoWrap.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams langLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.LEFT);
+        rootFrame.addView(langToggleBtn, langLp);
 
-        TextView logoS = new TextView(this);
-        logoS.setText("S");
-        logoS.setTextColor(Color.WHITE);
-        logoS.setTextSize(28);
-        logoS.setTypeface(Typeface.DEFAULT_BOLD);
-        brandLogoWrap.addView(logoS);
+        // 2. الشعار فوق في المنتصف + حالة الاتصال تحته
+        LinearLayout topLogoContainer = new LinearLayout(this);
+        topLogoContainer.setOrientation(LinearLayout.VERTICAL);
+        topLogoContainer.setGravity(Gravity.CENTER);
 
-        TextView logoI = new TextView(this);
-        logoI.setText("I");
-        logoI.setTextColor(Color.parseColor("#F5A623"));
-        logoI.setTextSize(28);
-        logoI.setTypeface(Typeface.DEFAULT_BOLD);
-        logoI.setPadding(3, 0, 3, 0);
-        brandLogoWrap.addView(logoI);
-
-        TextView logoYAQ = new TextView(this);
-        logoYAQ.setText("YAQ");
-        logoYAQ.setTextColor(Color.WHITE);
-        logoYAQ.setTextSize(28);
-        logoYAQ.setTypeface(Typeface.DEFAULT_BOLD);
-        brandLogoWrap.addView(logoYAQ);
-
-        header.addView(brandLogoWrap);
-
-        TextView tvSubTag = new TextView(this);
-        tvSubTag.setText("  TV");
-        tvSubTag.setTextColor(Color.parseColor("#F5A623"));
-        tvSubTag.setTextSize(16);
-        tvSubTag.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(tvSubTag, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        int logoW = Math.max(150, (int) (screenW * 0.16f));
+        int logoH = Math.max(54, (int) (screenH * 0.085f));
+        SiyaqWordmarkLogoView wordmarkView = new SiyaqWordmarkLogoView(this);
+        topLogoContainer.addView(wordmarkView, new LinearLayout.LayoutParams(logoW, logoH));
 
         statusBadge = new TextView(this);
-        statusBadge.setText("بانتظار اقتران الجوال...");
-        statusBadge.setTextColor(Color.parseColor("#F5A623"));
-        GradientDrawable badgeBg = new GradientDrawable();
-        badgeBg.setColor(Color.parseColor("#0C0C10"));
-        badgeBg.setCornerRadius(40f);
-        badgeBg.setStroke(2, Color.parseColor("#1C1C24"));
-        statusBadge.setBackground(badgeBg);
-        statusBadge.setPadding(26, 12, 26, 12);
-        statusBadge.setTextSize(13);
-        statusBadge.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(statusBadge);
+        statusBadge.setText("غير متصل");
+        statusBadge.setTextColor(Color.parseColor(COLOR_TEXT_SOFT));
+        statusBadge.setTextSize(14);
+        statusBadge.setTypeface(strongFont());
+        statusBadge.setGravity(Gravity.CENTER);
+        statusBadge.setPadding(0, 6, 0, 0);
+        topLogoContainer.addView(statusBadge);
 
-        root.addView(header, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        FrameLayout.LayoutParams topLogoLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        rootFrame.addView(topLogoContainer, topLogoLp);
 
-        // 2. بطاقة الاقتران الوسطى بتباعد مريح بين الرمز والكود والأزرار
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setGravity(Gravity.CENTER);
-        GradientDrawable cardBg = new GradientDrawable();
-        cardBg.setColor(Color.parseColor("#0C0C10"));
-        cardBg.setCornerRadius(32f);
-        cardBg.setStroke(2, Color.parseColor("#1C1C24"));
-        card.setBackground(cardBg);
-        card.setPadding(44, 36, 44, 36);
+        // 3. الحاوية الوسطى
+        centerClusterRow = new LinearLayout(this);
+        centerClusterRow.setOrientation(LinearLayout.HORIZONTAL);
+        centerClusterRow.setGravity(Gravity.CENTER);
 
-        // حاوية الباركود البيضاء بحجم متناسق
-        int qrBoxSize = Math.min(235, (int) (screenH * 0.38f));
-        LinearLayout qrFrame = new LinearLayout(this);
-        qrFrame.setGravity(Gravity.CENTER);
-        GradientDrawable qrWhiteBg = new GradientDrawable();
-        qrWhiteBg.setColor(Color.WHITE);
-        qrWhiteBg.setCornerRadius(24f);
-        qrFrame.setBackground(qrWhiteBg);
-        qrFrame.setPadding(14, 14, 14, 14);
+        // --- عمود الباركود والكود ---
+        qrColumn = new LinearLayout(this);
+        qrColumn.setOrientation(LinearLayout.VERTICAL);
+        qrColumn.setGravity(Gravity.CENTER);
+        qrColumn.setPadding(32, 12, 32, 12);
 
-        qrAndMqttWebView = new WebView(this);
+        int qrBoxSize = Math.min(215, (int) (screenH * 0.38f));
+        qrAndMqttWebView = new WebView(this) {
+            @Override
+            protected void onWindowVisibilityChanged(int visibility) {
+                super.onWindowVisibilityChanged(View.VISIBLE);
+            }
+        };
+        qrAndMqttWebView.setBackgroundColor(Color.TRANSPARENT);
         qrAndMqttWebView.setVerticalScrollBarEnabled(false);
         qrAndMqttWebView.setHorizontalScrollBarEnabled(false);
         WebSettings ws = qrAndMqttWebView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
+        qrAndMqttWebView.addJavascriptInterface(new JsBridge(), "SiyaqTvWaitBridge");
 
-        qrAndMqttWebView.addJavascriptInterface(new Object() {
-            @JavascriptInterface
-            public void onSyncEvent(String jsonStr) {
-                runOnUiThread(() -> handleIncomingPhoneMessage(jsonStr));
-            }
-        }, "SiyaqTvWaitBridge");
+        qrColumn.addView(qrAndMqttWebView, new LinearLayout.LayoutParams(qrBoxSize, qrBoxSize));
 
-        int innerQrSize = qrBoxSize - 28;
-        qrFrame.addView(qrAndMqttWebView, new LinearLayout.LayoutParams(innerQrSize, innerQrSize));
-        LinearLayout.LayoutParams qrLp = new LinearLayout.LayoutParams(qrBoxSize, qrBoxSize);
-        qrLp.setMargins(0, 0, 0, 24);
-        card.addView(qrFrame, qrLp);
-
-        // رقم الكود السري باللون البرتقالي الذهبي (#F5A623) مع مسافة واضحة ومريحة فوقه وتحته
         codeView = new TextView(this);
         codeView.setText(roomCode);
-        codeView.setTextColor(Color.parseColor("#F5A623"));
-        codeView.setTextSize(28);
+        codeView.setTextColor(Color.parseColor(COLOR_ACCENT));
+        codeView.setTextSize(26);
         codeView.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         codeView.setGravity(Gravity.CENTER);
-        codeView.setPadding(0, 8, 0, 14);
-        card.addView(codeView);
+        codeView.setPadding(0, 12, 0, 0);
+        qrColumn.addView(codeView);
 
-        statusHintView = new TextView(this);
-        statusHintView.setText("امسح الرمز من موقع SIYAQ في جوالك — ستبدأ الطبقة الشفافة تلقائياً فور الاقتران");
-        statusHintView.setTextColor(Color.parseColor("#94A3B8"));
-        statusHintView.setTextSize(13);
-        statusHintView.setGravity(Gravity.CENTER);
-        statusHintView.setPadding(0, 0, 0, 26);
-        card.addView(statusHintView);
+        // --- عمود الخيارات ---
+        optionsColumn = new LinearLayout(this);
+        optionsColumn.setOrientation(LinearLayout.VERTICAL);
+        optionsColumn.setGravity(Gravity.CENTER_VERTICAL);
+        optionsColumn.setPadding(32, 12, 32, 12);
 
-        // زر التحكم بالريموت مبرمج بالكامل داخل الكود (بدون الحاجة لأي ملفات XML إضافية)
-        actionBtn = new Button(this);
-        actionBtn.setFocusable(true);
-        actionBtn.setFocusableInTouchMode(true);
+        btnTestBar = createCleanTextButton("اختبار شريط الترجمة", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                triggerTestSubtitleBanner();
+            }
+        });
+        optionsColumn.addView(btnTestBar);
 
-        GradientDrawable focusedBg = new GradientDrawable();
-        focusedBg.setShape(GradientDrawable.RECTANGLE);
-        focusedBg.setColor(Color.parseColor("#F5A623"));
-        focusedBg.setCornerRadius(28f);
-        focusedBg.setStroke(3, Color.WHITE);
+        btnNewCode = createCleanTextButton("تجديد رمز الاقتران", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                rotateToFreshRoomCode();
+                Toast.makeText(MainActivity.this, isArabic ? "تم تجديد الرمز ✓" : "Code refreshed ✓", Toast.LENGTH_SHORT).show();
+            }
+        });
+        optionsColumn.addView(btnNewCode);
 
-        GradientDrawable pressedBg = new GradientDrawable();
-        pressedBg.setShape(GradientDrawable.RECTANGLE);
-        pressedBg.setColor(Color.parseColor("#D98200"));
-        pressedBg.setCornerRadius(28f);
+        btnPerm = createCleanTextButton("تفعيل صلاحية الشاشة", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                requestOverlayPermission();
+            }
+        });
+        optionsColumn.addView(btnPerm);
 
-        GradientDrawable normalBg = new GradientDrawable();
-        normalBg.setShape(GradientDrawable.RECTANGLE);
-        normalBg.setColor(Color.parseColor("#14141C"));
-        normalBg.setCornerRadius(28f);
-        normalBg.setStroke(2, Color.parseColor("#282836"));
+        btnUnpair = createCleanTextButton("إلغاء الاقتران", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                performCleanUnpairAndRotateCode();
+            }
+        });
+        optionsColumn.addView(btnUnpair);
 
-        StateListDrawable btnStates = new StateListDrawable();
-        btnStates.addState(new int[]{android.R.attr.state_focused}, focusedBg);
-        btnStates.addState(new int[]{android.R.attr.state_pressed}, pressedBg);
-        btnStates.addState(new int[]{}, normalBg);
-        actionBtn.setBackground(btnStates);
+        FrameLayout.LayoutParams centerLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER);
+        centerLp.topMargin = (int) (screenH * 0.04f);
+        rootFrame.addView(centerClusterRow, centerLp);
 
-        ColorStateList textStates = new ColorStateList(
-                new int[][]{
-                        new int[]{android.R.attr.state_focused},
-                        new int[]{android.R.attr.state_pressed},
-                        new int[]{}
-                },
-                new int[]{
-                        Color.parseColor("#050507"),
-                        Color.parseColor("#050507"),
-                        Color.WHITE
-                }
-        );
-        actionBtn.setTextColor(textStates);
-        actionBtn.setTextSize(14);
-        actionBtn.setTypeface(Typeface.DEFAULT_BOLD);
-        actionBtn.setPadding(42, 16, 42, 16);
+        setContentView(rootFrame);
 
-        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        btnLp.setMargins(0, 6, 0, 0);
-        card.addView(actionBtn, btnLp);
-
-        int cardWidth = Math.min(760, (int) (dm.widthPixels * 0.78f));
-        root.addView(card, new LinearLayout.LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        setContentView(root);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(unpairReceiver, new IntentFilter("com.siyaq.tv.ACTION_UNPAIRED"), Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(unpairReceiver, new IntentFilter("com.siyaq.tv.ACTION_UNPAIRED"));
-        }
-
-        updateActionButtonState();
-        actionBtn.requestFocus();
+        applyLanguageAndLayoutDirection();
+        btnTestBar.requestFocus();
         loadQrAndWaitBridge();
+        uiHandler.post(keepAliveRunnable);
     }
 
-    private void updateActionButtonState() {
-        boolean hasOverlayPerm = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
-        if (!hasOverlayPerm) {
-            actionBtn.setText("تفعيل صلاحية الظهور فوق الألعاب (لمرة واحدة)");
-            actionBtn.setOnClickListener(v -> {
-                Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + getPackageName()));
-                startActivityForResult(intent, 101);
-            });
-        } else if (isPhonePaired) {
-            actionBtn.setText("إيقاف الطبقة الشفافة وإلغاء الاقتران");
-            actionBtn.setOnClickListener(v -> stopOverlayAndUnpair());
+    private String generateRandomRoomCode() {
+        int num = 10000000 + new Random().nextInt(90000000);
+        return String.valueOf(num);
+    }
+
+    // تحديث نصوص اللغة وعكس ترتيب الكود والخيارات
+    private void applyLanguageAndLayoutDirection() {
+        centerClusterRow.removeAllViews();
+
+        // مسافة أكبر بين عمود الكود وعمود الأزرار
+        LinearLayout.LayoutParams colLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        colLp.setMargins(70, 0, 70, 0);
+
+        if (isArabic) {
+            centerClusterRow.addView(qrColumn, colLp);
+            centerClusterRow.addView(optionsColumn, colLp);
+
+            btnTestBar.setText("اختبار شريط الترجمة");
+            btnNewCode.setText("تجديد رمز الاقتران");
+            btnPerm.setText("تفعيل صلاحية الشاشة");
+            btnUnpair.setText("إلغاء الاقتران");
+
+            int rightGrav = Gravity.RIGHT | Gravity.CENTER_VERTICAL;
+            btnTestBar.setGravity(rightGrav);
+            btnNewCode.setGravity(rightGrav);
+            btnPerm.setGravity(rightGrav);
+            btnUnpair.setGravity(rightGrav);
         } else {
-            actionBtn.setText("تجديد رمز الاقتران");
-            actionBtn.setOnClickListener(v -> {
-                int num = 10000000 + new Random().nextInt(90000000);
-                roomCode = String.valueOf(num);
-                codeView.setText(roomCode);
-                loadQrAndWaitBridge();
-                Toast.makeText(this, "تم تجديد الرمز", Toast.LENGTH_SHORT).show();
-            });
+            centerClusterRow.addView(optionsColumn, colLp);
+            centerClusterRow.addView(qrColumn, colLp);
+
+            btnTestBar.setText("Test Subtitle Bar");
+            btnNewCode.setText("Refresh Pair Code");
+            btnPerm.setText("Screen Permission");
+            btnUnpair.setText("Unpair Device");
+
+            int leftGrav = Gravity.LEFT | Gravity.CENTER_VERTICAL;
+            btnTestBar.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
+            btnTestBar.setGravity(leftGrav);
+            btnNewCode.setGravity(leftGrav);
+            btnPerm.setGravity(leftGrav);
+            btnUnpair.setGravity(leftGrav);
+        }
+
+        updateUiForPairingState(isPhonePaired);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (qrAndMqttWebView != null) {
+            qrAndMqttWebView.onResume();
+            qrAndMqttWebView.resumeTimers();
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (qrAndMqttWebView != null) {
+            qrAndMqttWebView.onResume();
+            qrAndMqttWebView.resumeTimers();
+        }
+    }
+
+    private Button createCleanTextButton(String label, View.OnClickListener listener) {
+        final Button btn = new Button(this);
+        btn.setText(label);
+        btn.setFocusable(true);
+        btn.setFocusableInTouchMode(true);
+        btn.setBackgroundColor(Color.TRANSPARENT);
+        btn.setTextColor(Color.parseColor(COLOR_TEXT));
+        btn.setTextSize(19);
+        btn.setTypeface(strongFont());
+        btn.setPadding(16, 16, 16, 16);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            btn.setStateListAnimator(null);
+            btn.setElevation(0f);
+        }
+
+        // مسافة أوضح بين الأزرار
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 8, 0, 8);
+        btn.setLayoutParams(lp);
+
+        btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                if (hasFocus) {
+                    btn.setTextColor(Color.parseColor(COLOR_ACCENT));
+                    btn.setTextSize(21);
+                } else {
+                    btn.setTextColor(Color.parseColor(COLOR_TEXT));
+                    btn.setTextSize(19);
+                }
+            }
+        });
+
+        btn.setOnClickListener(listener);
+        return btn;
+    }
+
+    private void triggerTestSubtitleBanner() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            requestOverlayPermission();
+            return;
+        }
+        ensureOverlayStageCreated();
+        if (subtitleBannerBox != null && subtitleTextView != null) {
+            subtitleTextView.setText(isArabic
+                    ? "اختبار شريط الترجمة — جاهز للعرض فوق اللعبة ✓"
+                    : "Subtitle Bar Test — Ready over game ✓");
+            subtitleBannerBox.setVisibility(View.VISIBLE);
+            if (autoHideTestRunnable != null) {
+                uiHandler.removeCallbacks(autoHideTestRunnable);
+            }
+            autoHideTestRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (subtitleBannerBox != null && !isPhonePaired) {
+                        subtitleBannerBox.setVisibility(View.GONE);
+                    }
+                }
+            };
+            uiHandler.postDelayed(autoHideTestRunnable, 4000);
+        }
+    }
+
+    private void requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, 101);
+        } else {
+            Toast.makeText(this, isArabic ? "الصلاحية مفعلة ✓" : "Permission Active ✓", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void loadQrAndWaitBridge() {
-        String qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=10&data=SIYAQ-TV-" + roomCode;
-        String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1.0'>" +
+        String qrData = "SIYAQ-TV-" + roomCode;
+        String qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&ecc=M&margin=2&data=" + qrData;
+
+        String html = "<!DOCTYPE html><html><head>" +
                 "<style>" +
-                "html,body{margin:0;padding:0;width:100%;height:100%;background:#FFFFFF;display:flex;align-items:center;justify-content:center;overflow:hidden;}" +
-                "img{width:92%;height:92%;object-fit:contain;display:block;}" +
+                "*{margin:0;padding:0;box-sizing:border-box;}" +
+                "html,body{width:100%;height:100%;background:transparent;display:flex;align-items:center;justify-content:center;overflow:hidden;}" +
+                ".card{width:92%;height:92%;background:#FFFFFF;border-radius:20px;display:flex;align-items:center;justify-content:center;padding:11%;}" +
+                "img{width:100%;height:100%;object-fit:contain;display:block;image-rendering:pixelated;}" +
                 "</style>" +
                 "<script src='https://unpkg.com/mqtt/dist/mqtt.min.js'></script>" +
                 "</head><body>" +
-                "<img src='" + qrUrl + "' alt='QR' />" +
+                "<div class='card'><img src='" + qrUrl + "' alt='QR' /></div>" +
                 "<script>" +
+                "window.mqttClient = null;" +
                 "try {" +
-                "  const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { keepalive: 20 });" +
-                "  client.on('connect', () => { client.subscribe('siyaq/tv/sec/" + roomCode + "'); });" +
-                "  client.on('message', (t, p) => { SiyaqTvWaitBridge.onSyncEvent(p.toString()); });" +
+                "  window.mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {" +
+                "    keepalive: 15," +
+                "    reconnectPeriod: 800," +
+                "    clean: true" +
+                "  });" +
+                "  window.mqttClient.on('connect', () => { window.mqttClient.subscribe('siyaq/tv/sec/" + roomCode + "'); });" +
+                "  window.mqttClient.on('message', (t, p) => { SiyaqTvWaitBridge.onSyncEvent(p.toString()); });" +
                 "} catch(e) {}" +
                 "</script></body></html>";
         qrAndMqttWebView.loadDataWithBaseURL("https://siyaq.app", html, "text/html", "UTF-8", null);
@@ -298,64 +557,263 @@ public class MainActivity extends Activity {
             JSONObject obj = new JSONObject(jsonStr);
             String type = obj.optString("type", "");
 
-            if ("PAIRED".equals(type) || "SUB_UPDATE".equals(type)) {
-                if (!isPhonePaired) {
-                    isPhonePaired = true;
-                    updateUiForPairingState(true);
-                    startOverlayServiceOnPair(jsonStr);
+            if ("UNPAIRED".equals(type)) {
+                hideOverlayStage();
+                isPhonePaired = false;
+                updateUiForPairingState(false);
+                rotateToFreshRoomCode();
+                Toast.makeText(this, isArabic ? "تم إلغاء الاقتران ✓" : "Unpaired ✓", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            if ("SUB_CLEAR".equals(type)) {
+                if (subtitleBannerBox != null) {
+                    subtitleTextView.setText("");
+                    subtitleBannerBox.setVisibility(View.GONE);
                 }
-            } else if ("UNPAIRED".equals(type)) {
-                stopOverlayAndUnpair();
+                return;
+            }
+
+            if ("PAIRED".equals(type)) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                    Toast.makeText(this, isArabic ? "يرجى تفعيل صلاحية الشاشة أولاً" : "Please enable screen permission first", Toast.LENGTH_LONG).show();
+                    return;
+                }
+
+                isPhonePaired = true;
+                ensureOverlayStageCreated();
+                updateUiForPairingState(true);
+
+                JSONObject style = obj.optJSONObject("style");
+                if (style != null) {
+                    applySmoothHardwareSubtitleStyle(style);
+                }
+
+                subtitleTextView.setText(isArabic ? "متصل بالجوال — جاهز للترجمة الفورية ✓" : "Connected to Phone — Ready for Live Translation ✓");
+                subtitleBannerBox.setVisibility(View.VISIBLE);
+
+                Toast.makeText(this, isArabic ? "تم الاقتران بالجوال ✓" : "Paired with Phone ✓", Toast.LENGTH_SHORT).show();
+                moveTaskToBack(true);
+                return;
+            }
+
+            if ("SUB_UPDATE".equals(type)) {
+                if (!isPhonePaired) {
+                    return;
+                }
+
+                ensureOverlayStageCreated();
+
+                JSONObject style = obj.optJSONObject("style");
+                if (style != null) {
+                    applySmoothHardwareSubtitleStyle(style);
+                }
+
+                String text = obj.optString("text", "").trim();
+                if (text.isEmpty()
+                        || "في انتظار الترجمات".equals(text)
+                        || "الترجمة متوقفة".equals(text)
+                        || "Waiting for subtitles".equals(text)
+                        || "Translation Paused".equals(text)) {
+                    subtitleTextView.setText("");
+                    subtitleBannerBox.setVisibility(View.GONE);
+                } else {
+                    subtitleTextView.setText(text);
+                    subtitleBannerBox.setVisibility(View.VISIBLE);
+                }
             }
         } catch (Exception ignored) {}
     }
 
+    private void ensureOverlayStageCreated() {
+        if (fullScreenOverlayStage != null) return;
+
+        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+
+        fullScreenOverlayStage = new FrameLayout(this);
+        fullScreenOverlayStage.setBackgroundColor(Color.TRANSPARENT);
+
+        subtitleBannerBox = new FrameLayout(this);
+        boxBackground = new GradientDrawable();
+        boxBackground.setColor(Color.argb(225, 18, 18, 26));
+        boxBackground.setCornerRadius(24f);
+        subtitleBannerBox.setBackground(boxBackground);
+        subtitleBannerBox.setPadding(36, 16, 36, 16);
+        subtitleBannerBox.setVisibility(View.GONE);
+
+        subtitleTextView = new TextView(this);
+        subtitleTextView.setText("");
+        subtitleTextView.setTextColor(Color.WHITE);
+        subtitleTextView.setTextSize(24);
+        subtitleTextView.setTypeface(strongFont());
+        subtitleTextView.setGravity(Gravity.CENTER);
+        // ظل خفيف يزيد وضوح النص فوق أي لعبة
+        subtitleTextView.setShadowLayer(4f, 0f, 2f, Color.BLACK);
+
+        subtitleBannerBox.addView(subtitleTextView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER));
+
+        int initialWidth = (int) (dm.widthPixels * 0.85f);
+        FrameLayout.LayoutParams bannerLp = new FrameLayout.LayoutParams(
+                initialWidth,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.LEFT);
+        fullScreenOverlayStage.addView(subtitleBannerBox, bannerLp);
+
+        subtitleBannerBox.setTranslationX((dm.widthPixels - initialWidth) / 2f);
+        subtitleBannerBox.setTranslationY(dm.heightPixels * 0.78f);
+
+        int layoutFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                : WindowManager.LayoutParams.TYPE_PHONE;
+
+        stageWindowParams = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                layoutFlag,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                PixelFormat.TRANSLUCENT);
+
+        stageWindowParams.gravity = Gravity.TOP | Gravity.LEFT;
+        windowManager.addView(fullScreenOverlayStage, stageWindowParams);
+    }
+
+    private void applySmoothHardwareSubtitleStyle(JSONObject style) {
+        if (fullScreenOverlayStage == null || subtitleBannerBox == null || subtitleTextView == null) return;
+        try {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+
+            String fontFamilyRaw = style.optString("fontFamily", "Tajawal");
+            boolean isBold = style.optBoolean("isBold", true);
+            int tfStyle = isBold ? Typeface.BOLD : Typeface.NORMAL;
+
+            String androidFamily = "sans-serif-medium";
+            if (fontFamilyRaw.contains("Cairo")) {
+                androidFamily = "sans-serif-medium";
+            } else if (fontFamilyRaw.contains("Changa")) {
+                androidFamily = "sans-serif-condensed";
+            } else if (fontFamilyRaw.contains("Almarai")) {
+                androidFamily = "serif";
+            }
+            subtitleTextView.setTypeface(Typeface.create(androidFamily, tfStyle));
+
+            int fontSize = style.optInt("fontSize", 22);
+            subtitleTextView.setTextSize(fontSize * 1.15f);
+
+            String textColorStr = style.optString("textColor", "#FFFFFF");
+            int textOpacity = style.optInt("textOpacity", 100);
+            int parsedTextCol = Color.parseColor(textColorStr);
+            int textAlpha = Math.max(30, Math.min(255, (int) (textOpacity * 2.55f)));
+            subtitleTextView.setTextColor(Color.argb(
+                    textAlpha,
+                    Color.red(parsedTextCol),
+                    Color.green(parsedTextCol),
+                    Color.blue(parsedTextCol)
+            ));
+
+            String bgColorStr = style.optString("bgColor", "#12121A");
+            int bgOpacity = style.optInt("bgOpacity", 90);
+            int parsedBgCol = Color.parseColor(bgColorStr);
+            int bgAlpha = Math.max(0, Math.min(255, (int) (bgOpacity * 2.55f)));
+            boxBackground.setColor(Color.argb(
+                    bgAlpha,
+                    Color.red(parsedBgCol),
+                    Color.green(parsedBgCol),
+                    Color.blue(parsedBgCol)
+            ));
+
+            int bgWidthPct = Math.max(35, Math.min(100, style.optInt("bgWidth", 85)));
+            int bgHeightPx = Math.max(4, Math.min(48, style.optInt("bgHeight", 14)));
+            int newWidthPx = (int) (dm.widthPixels * (bgWidthPct / 100f));
+
+            FrameLayout.LayoutParams bannerLp = (FrameLayout.LayoutParams) subtitleBannerBox.getLayoutParams();
+            if (bannerLp.width != newWidthPx) {
+                bannerLp.width = newWidthPx;
+                subtitleBannerBox.setLayoutParams(bannerLp);
+            }
+
+            int padV = (int) (bgHeightPx * dm.density);
+            int padH = (int) (24 * dm.density);
+            subtitleBannerBox.setPadding(padH, padV, padH, padV);
+
+            int posX = Math.max(10, Math.min(90, style.optInt("posX", 50)));
+            int posY = Math.max(10, Math.min(92, style.optInt("posY", 82)));
+
+            float centerX = dm.widthPixels * (posX / 100f);
+            float targetX = Math.max(0f, Math.min(dm.widthPixels - newWidthPx, centerX - (newWidthPx / 2f)));
+
+            float estBoxHeight = subtitleBannerBox.getHeight() > 0 ? subtitleBannerBox.getHeight() : (72f * dm.density);
+            float centerY = dm.heightPixels * (posY / 100f);
+            float targetY = Math.max(0f, Math.min(dm.heightPixels - estBoxHeight, centerY - (estBoxHeight / 2f)));
+
+            subtitleBannerBox.setTranslationX(targetX);
+            subtitleBannerBox.setTranslationY(targetY);
+        } catch (Exception ignored) {}
+    }
+
+    private void rotateToFreshRoomCode() {
+        roomCode = generateRandomRoomCode();
+        if (codeView != null) {
+            codeView.setText(roomCode);
+        }
+        loadQrAndWaitBridge();
+    }
+
+    private void performCleanUnpairAndRotateCode() {
+        isPhonePaired = false;
+        if (qrAndMqttWebView != null) {
+            qrAndMqttWebView.evaluateJavascript(
+                    "if(window.mqttClient && window.mqttClient.connected){ window.mqttClient.publish('siyaq/tv/sec/" + roomCode + "', JSON.stringify({type:'UNPAIRED'})); }",
+                    null);
+        }
+        hideOverlayStage();
+        updateUiForPairingState(false);
+        uiHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                rotateToFreshRoomCode();
+            }
+        }, 180);
+        Toast.makeText(this, isArabic ? "تم إلغاء الاقتران ✓" : "Unpaired ✓", Toast.LENGTH_SHORT).show();
+    }
+
+    private void hideOverlayStage() {
+        if (fullScreenOverlayStage != null && windowManager != null) {
+            try {
+                windowManager.removeView(fullScreenOverlayStage);
+            } catch (Exception ignored) {}
+            fullScreenOverlayStage = null;
+            subtitleBannerBox = null;
+            subtitleTextView = null;
+        }
+    }
+
     private void updateUiForPairingState(boolean paired) {
         if (paired) {
-            statusBadge.setText("● متصل بالجوال — الطبقة الشفافة نشطة");
-            statusBadge.setTextColor(Color.parseColor("#34D399"));
-            statusHintView.setText("تم الاقتران بنجاح! يمكنك الآن العودة لمنفذ اللعبة (HDMI)");
+            statusBadge.setText(isArabic ? "● متصل بالجوال" : "● Phone Connected");
+            statusBadge.setTextColor(Color.parseColor(COLOR_ACCENT));
         } else {
-            statusBadge.setText("بانتظار اقتران الجوال...");
-            statusBadge.setTextColor(Color.parseColor("#F5A623"));
-            statusHintView.setText("امسح الرمز من موقع SIYAQ في جوالك — ستبدأ الطبقة الشفافة تلقائياً فور الاقتران");
+            statusBadge.setText(isArabic ? "غير متصل" : "Not Connected");
+            statusBadge.setTextColor(Color.parseColor(COLOR_TEXT_SOFT));
         }
-        updateActionButtonState();
-    }
-
-    private void startOverlayServiceOnPair(String initialPayload) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "يرجى الموافقة على صلاحية الظهور فوق التطبيقات لتشغيل شريط الترجمة", Toast.LENGTH_LONG).show();
-            updateActionButtonState();
-            return;
-        }
-        Intent svc = new Intent(this, OverlaySubtitleService.class);
-        svc.putExtra("ROOM_CODE", roomCode);
-        svc.putExtra("INITIAL_PAYLOAD", initialPayload);
-        startService(svc);
-        Toast.makeText(this, "تم اقتران الجوال وتفعيل شريط الترجمة الشفاف", Toast.LENGTH_SHORT).show();
-        moveTaskToBack(true);
-    }
-
-    private void stopOverlayAndUnpair() {
-        isPhonePaired = false;
-        stopService(new Intent(this, OverlaySubtitleService.class));
-        updateUiForPairingState(false);
-        Toast.makeText(this, "توقفت الطبقة الشفافة وتم إلغاء الاقتران", Toast.LENGTH_SHORT).show();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        updateActionButtonState();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        try {
-            unregisterReceiver(unpairReceiver);
-        } catch (Exception ignored) {}
+        uiHandler.removeCallbacks(keepAliveRunnable);
+        if (wakeLock != null && wakeLock.isHeld()) {
+            try {
+                wakeLock.release();
+            } catch (Exception ignored) {}
+        }
+        hideOverlayStage();
         if (qrAndMqttWebView != null) {
             qrAndMqttWebView.destroy();
         }
