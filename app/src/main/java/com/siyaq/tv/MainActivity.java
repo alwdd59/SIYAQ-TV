@@ -5,9 +5,11 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -71,7 +73,6 @@ public class MainActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(0, 0, 0, 26);
 
-        // تركيب شعار SIYAQ مع حرف I باللون البرتقالي الذهبي (#F5A623)
         LinearLayout brandLogoWrap = new LinearLayout(this);
         brandLogoWrap.setOrientation(LinearLayout.HORIZONTAL);
         brandLogoWrap.setGravity(Gravity.CENTER_VERTICAL);
@@ -182,15 +183,51 @@ public class MainActivity extends Activity {
         statusHintView.setPadding(0, 0, 0, 26);
         card.addView(statusHintView);
 
-        // زر التحكم بالريموت بمسافة مريحة عن الكود والنص
+        // زر التحكم بالريموت مبرمج بالكامل داخل الكود (بدون الحاجة لأي ملفات XML إضافية)
         actionBtn = new Button(this);
         actionBtn.setFocusable(true);
         actionBtn.setFocusableInTouchMode(true);
-        actionBtn.setBackgroundResource(R.drawable.tv_btn_focus_selector);
-        actionBtn.setTextColor(getResources().getColorStateList(R.color.tv_btn_text_selector));
+
+        GradientDrawable focusedBg = new GradientDrawable();
+        focusedBg.setShape(GradientDrawable.RECTANGLE);
+        focusedBg.setColor(Color.parseColor("#F5A623"));
+        focusedBg.setCornerRadius(28f);
+        focusedBg.setStroke(3, Color.WHITE);
+
+        GradientDrawable pressedBg = new GradientDrawable();
+        pressedBg.setShape(GradientDrawable.RECTANGLE);
+        pressedBg.setColor(Color.parseColor("#D98200"));
+        pressedBg.setCornerRadius(28f);
+
+        GradientDrawable normalBg = new GradientDrawable();
+        normalBg.setShape(GradientDrawable.RECTANGLE);
+        normalBg.setColor(Color.parseColor("#14141C"));
+        normalBg.setCornerRadius(28f);
+        normalBg.setStroke(2, Color.parseColor("#282836"));
+
+        StateListDrawable btnStates = new StateListDrawable();
+        btnStates.addState(new int[]{android.R.attr.state_focused}, focusedBg);
+        btnStates.addState(new int[]{android.R.attr.state_pressed}, pressedBg);
+        btnStates.addState(new int[]{}, normalBg);
+        actionBtn.setBackground(btnStates);
+
+        ColorStateList textStates = new ColorStateList(
+                new int[][]{
+                        new int[]{android.R.attr.state_focused},
+                        new int[]{android.R.attr.state_pressed},
+                        new int[]{}
+                },
+                new int[]{
+                        Color.parseColor("#050507"),
+                        Color.parseColor("#050507"),
+                        Color.WHITE
+                }
+        );
+        actionBtn.setTextColor(textStates);
         actionBtn.setTextSize(14);
         actionBtn.setTypeface(Typeface.DEFAULT_BOLD);
         actionBtn.setPadding(42, 16, 42, 16);
+
         LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         btnLp.setMargins(0, 6, 0, 0);
