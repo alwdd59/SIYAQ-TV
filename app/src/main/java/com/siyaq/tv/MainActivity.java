@@ -21,6 +21,7 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,13 +37,22 @@ import android.widget.Toast;
 
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
 
-    // ===== هوية SIYAQ: البرتقالي =====
+    // ===== هوية SIYAQ الجديدة: البرتقالي الذهبي والخلفية السوداء المطفية =====
     private static final String COLOR_ACCENT = "#F5A623";
-    private static final String COLOR_ACCENT_LIGHT = "#FFC857";
+    private static final String COLOR_ACCENT_LIGHT = "#FFD066";
     private static final String COLOR_ACCENT_DARK = "#D98200";
     private static final String COLOR_BG = "#050507";
     private static final String COLOR_TEXT = "#FFFFFF";
@@ -74,6 +84,22 @@ public class MainActivity extends Activity {
     private GradientDrawable boxBackground;
     private WindowManager.LayoutParams stageWindowParams;
     private PowerManager.WakeLock wakeLock;
+    private JSONObject lastStyleJson = null;
+
+    // ذاكرة تحميل وحفظ الخطوط العربية الحقيقية (Tajawal, Cairo, Changa, Almarai) لتعمل على التلفاز مثل الجوال 100%
+    private final Map<String, Typeface> customFontCache = new HashMap<>();
+    private final ExecutorService fontDownloadExecutor = Executors.newSingleThreadExecutor();
+
+    private static final String[][] GOOGLE_ARABIC_FONTS = new String[][]{
+            {"Tajawal-Regular", "https://raw.githubusercontent.com/google/fonts/main/ofl/tajawal/Tajawal-Regular.ttf"},
+            {"Tajawal-Bold", "https://raw.githubusercontent.com/google/fonts/main/ofl/tajawal/Tajawal-Bold.ttf"},
+            {"Cairo-Regular", "https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf"},
+            {"Cairo-Bold", "https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf"},
+            {"Changa-Regular", "https://raw.githubusercontent.com/google/fonts/main/ofl/changa/Changa%5Bwght%5D.ttf"},
+            {"Changa-Bold", "https://raw.githubusercontent.com/google/fonts/main/ofl/changa/Changa%5Bwght%5D.ttf"},
+            {"Almarai-Regular", "https://raw.githubusercontent.com/google/fonts/main/ofl/almarai/Almarai-Regular.ttf"},
+            {"Almarai-Bold", "https://raw.githubusercontent.com/google/fonts/main/ofl/almarai/Almarai-Bold.ttf"}
+    };
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private Runnable autoHideTestRunnable;
@@ -105,7 +131,115 @@ public class MainActivity extends Activity {
         return Typeface.create("sans-serif-medium", Typeface.BOLD);
     }
 
-    // فيو مخصص يرسم شعار SIYAQ (حرف الـ I بتدرج برتقالي)
+    // تحميل وتخزين خطوط الجوال الأربعة (Tajawal, Cairo, Changa, Almarai) بصيغة TTF ثابتة للتلفاز
+    private void preloadArabicGoogleFontsAsync() {
+        fontDownloadExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                File fontDir = new File(getFilesDir(), "siyaq_fonts");
+                if (!fontDir.exists()) {
+                    fontDir.mkdirs();
+                }
+                boolean anyNewLoaded = false;
+                for (String[] entry : GOOGLE_ARABIC_FONTS) {
+                    String key = entry[0];
+                    String fallbackUrl = entry[1];
+                    synchronized (customFontCache) {
+                        if (customFontCache.containsKey(key)) continue;
+                    }
+
+                    File outFile = new File(fontDir, key + ".ttf");
+                    if (!outFile.exists() || outFile.length() < 1000) {
+                        try {
+                            String famName = key.split("-")[0];
+                            String weight = key.endsWith("Bold") ? "700" : "400";
+                            String cssUrl = "https://fonts.googleapis.com/css?family=" + famName + ":" + weight;
+                            HttpURLConnection cssConn = (HttpURLConnection) new URL(cssUrl).openConnection();
+                            cssConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; U; Android 4.4.2; en-us)");
+                            cssConn.setConnectTimeout(4000);
+                            cssConn.setReadTimeout(5000);
+                            String directTtfUrl = fallbackUrl;
+                            if (cssConn.getResponseCode() == 200) {
+                                InputStream cis = cssConn.getInputStream();
+                                byte[] cbuf = new byte[4096];
+                                int cn = cis.read(cbuf);
+                                cis.close();
+                                if (cn > 0) {
+                                    String cssText = new String(cbuf, 0, cn, "UTF-8");
+                                    int idx = cssText.indexOf("https://fonts.gstatic.com/");
+                                    if (idx != -1) {
+                                        int endIdx = cssText.indexOf(")", idx);
+                                        if (endIdx != -1) {
+                                            directTtfUrl = cssText.substring(idx, endIdx).replace("\"", "").replace("'", "").trim();
+                                        }
+                                    }
+                                }
+                            }
+                            cssConn.disconnect();
+
+                            URL url = new URL(directTtfUrl);
+                            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                            conn.setConnectTimeout(5000);
+                            conn.setReadTimeout(7000);
+                            conn.connect();
+                            if (conn.getResponseCode() == 200) {
+                                InputStream in = conn.getInputStream();
+                                FileOutputStream out = new FileOutputStream(outFile);
+                                byte[] buf = new byte[8192];
+                                int n;
+                                while ((n = in.read(buf)) != -1) {
+                                    out.write(buf, 0, n);
+                                }
+                                out.close();
+                                in.close();
+                            }
+                            conn.disconnect();
+                        } catch (Exception ignored) {}
+                    }
+
+                    if (outFile.exists() && outFile.length() > 1000) {
+                        try {
+                            Typeface tf = Typeface.createFromFile(outFile);
+                            if (tf != null) {
+                                synchronized (customFontCache) {
+                                    customFontCache.put(key, tf);
+                                }
+                                anyNewLoaded = true;
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }
+
+                if (anyNewLoaded && lastStyleJson != null) {
+                    uiHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            applySmoothHardwareSubtitleStyle(lastStyleJson);
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    private Typeface resolveRequestedArabicTypeface(String fontFamilyRaw, boolean isBold) {
+        String familyBase = "Tajawal";
+        if (fontFamilyRaw != null) {
+            if (fontFamilyRaw.contains("Cairo")) familyBase = "Cairo";
+            else if (fontFamilyRaw.contains("Changa")) familyBase = "Changa";
+            else if (fontFamilyRaw.contains("Almarai")) familyBase = "Almarai";
+        }
+        String key = familyBase + (isBold ? "-Bold" : "-Regular");
+        synchronized (customFontCache) {
+            Typeface cached = customFontCache.get(key);
+            if (cached != null) {
+                return Typeface.create(cached, isBold ? Typeface.BOLD : Typeface.NORMAL);
+            }
+        }
+        return Typeface.create("sans-serif-medium", isBold ? Typeface.BOLD : Typeface.NORMAL);
+    }
+
+    // فيو مخصص يرسم شعار SIYAQ الهندسي (حرف الـ I بتدرج برتقالي ذهبي)
     private class SiyaqWordmarkLogoView extends View {
         private final Paint whitePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint accentBarPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -147,7 +281,7 @@ public class MainActivity extends Activity {
             sPath.close();
             c.drawPath(sPath, whitePaint);
 
-            // حرف I البرتقالي المتدرج
+            // حرف I البرتقالي الذهبي المتدرج
             accentBarPaint.setShader(new LinearGradient(
                     0, oy + 35.4f * scale, 0, oy + 64.9f * scale,
                     Color.parseColor(COLOR_ACCENT_LIGHT),
@@ -223,6 +357,7 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) {}
 
+        preloadArabicGoogleFontsAsync();
         roomCode = generateRandomRoomCode();
 
         DisplayMetrics dm = getResources().getDisplayMetrics();
@@ -302,7 +437,7 @@ public class MainActivity extends Activity {
         qrColumn = new LinearLayout(this);
         qrColumn.setOrientation(LinearLayout.VERTICAL);
         qrColumn.setGravity(Gravity.CENTER);
-        qrColumn.setPadding(32, 12, 32, 12);
+        qrColumn.setPadding(36, 16, 36, 16);
 
         int qrBoxSize = Math.min(215, (int) (screenH * 0.38f));
         qrAndMqttWebView = new WebView(this) {
@@ -327,14 +462,15 @@ public class MainActivity extends Activity {
         codeView.setTextSize(26);
         codeView.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         codeView.setGravity(Gravity.CENTER);
-        codeView.setPadding(0, 12, 0, 0);
+        // زيادة المسافة بين مربع الباركود ورقم الكود السري
+        codeView.setPadding(0, 22, 0, 0);
         qrColumn.addView(codeView);
 
         // --- عمود الخيارات ---
         optionsColumn = new LinearLayout(this);
         optionsColumn.setOrientation(LinearLayout.VERTICAL);
         optionsColumn.setGravity(Gravity.CENTER_VERTICAL);
-        optionsColumn.setPadding(32, 12, 32, 12);
+        optionsColumn.setPadding(36, 16, 36, 16);
 
         btnTestBar = createCleanTextButton("اختبار شريط الترجمة", new View.OnClickListener() {
             @Override
@@ -348,7 +484,7 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 rotateToFreshRoomCode();
-                Toast.makeText(MainActivity.this, isArabic ? "تم تجديد الرمز ✓" : "Code refreshed ✓", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, isArabic ? "تم تجديد الرمز" : "Code refreshed", Toast.LENGTH_SHORT).show();
             }
         });
         optionsColumn.addView(btnNewCode);
@@ -388,14 +524,14 @@ public class MainActivity extends Activity {
         return String.valueOf(num);
     }
 
-    // تحديث نصوص اللغة وعكس ترتيب الكود والخيارات
+    // تحديث نصوص اللغة وعكس ترتيب الكود والخيارات مع زيادة المسافة بين الأزرار والكود
     private void applyLanguageAndLayoutDirection() {
         centerClusterRow.removeAllViews();
 
-        // مسافة أكبر بين عمود الكود وعمود الأزرار
+        // مسافة أوسع وأوضح بين عمود الكود وعمود الأزرار
         LinearLayout.LayoutParams colLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        colLp.setMargins(70, 0, 70, 0);
+        colLp.setMargins(96, 0, 96, 0);
 
         if (isArabic) {
             centerClusterRow.addView(qrColumn, colLp);
@@ -458,16 +594,16 @@ public class MainActivity extends Activity {
         btn.setTextColor(Color.parseColor(COLOR_TEXT));
         btn.setTextSize(19);
         btn.setTypeface(strongFont());
-        btn.setPadding(16, 16, 16, 16);
+        btn.setPadding(20, 18, 20, 18);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             btn.setStateListAnimator(null);
             btn.setElevation(0f);
         }
 
-        // مسافة أوضح بين الأزرار
+        // مسافة مريحة وأوسع بين الأزرار
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, 8, 0, 8);
+        lp.setMargins(0, 14, 0, 14);
         btn.setLayoutParams(lp);
 
         btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
@@ -494,9 +630,10 @@ public class MainActivity extends Activity {
         }
         ensureOverlayStageCreated();
         if (subtitleBannerBox != null && subtitleTextView != null) {
+            // بدون علامة الصح، فقط النص الصافي
             subtitleTextView.setText(isArabic
-                    ? "اختبار شريط الترجمة — جاهز للعرض فوق اللعبة ✓"
-                    : "Subtitle Bar Test — Ready over game ✓");
+                    ? "اختبار شريط الترجمة — جاهز للعرض فوق اللعبة"
+                    : "Subtitle Bar Test — Ready over game");
             subtitleBannerBox.setVisibility(View.VISIBLE);
             if (autoHideTestRunnable != null) {
                 uiHandler.removeCallbacks(autoHideTestRunnable);
@@ -519,7 +656,7 @@ public class MainActivity extends Activity {
                     Uri.parse("package:" + getPackageName()));
             startActivityForResult(intent, 101);
         } else {
-            Toast.makeText(this, isArabic ? "الصلاحية مفعلة ✓" : "Permission Active ✓", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, isArabic ? "الصلاحية مفعلة" : "Permission Active", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -562,7 +699,7 @@ public class MainActivity extends Activity {
                 isPhonePaired = false;
                 updateUiForPairingState(false);
                 rotateToFreshRoomCode();
-                Toast.makeText(this, isArabic ? "تم إلغاء الاقتران ✓" : "Unpaired ✓", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, isArabic ? "تم إلغاء الاقتران" : "Unpaired", Toast.LENGTH_SHORT).show();
                 return;
             }
 
@@ -586,30 +723,34 @@ public class MainActivity extends Activity {
 
                 JSONObject style = obj.optJSONObject("style");
                 if (style != null) {
+                    lastStyleJson = style;
                     applySmoothHardwareSubtitleStyle(style);
                 }
 
-                subtitleTextView.setText(isArabic ? "متصل بالجوال — جاهز للترجمة الفورية ✓" : "Connected to Phone — Ready for Live Translation ✓");
+                // بدون علامة الصح، فقط النص الصافي
+                subtitleTextView.setText(isArabic ? "متصل بالجوال — جاهز للترجمة الفورية" : "Connected to Phone — Ready for Live Translation");
                 subtitleBannerBox.setVisibility(View.VISIBLE);
 
-                Toast.makeText(this, isArabic ? "تم الاقتران بالجوال ✓" : "Paired with Phone ✓", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, isArabic ? "تم الاقتران بالجوال" : "Paired with Phone", Toast.LENGTH_SHORT).show();
                 moveTaskToBack(true);
                 return;
             }
 
             if ("SUB_UPDATE".equals(type)) {
                 if (!isPhonePaired) {
-                    return;
+                    isPhonePaired = true;
+                    updateUiForPairingState(true);
                 }
 
                 ensureOverlayStageCreated();
 
                 JSONObject style = obj.optJSONObject("style");
                 if (style != null) {
+                    lastStyleJson = style;
                     applySmoothHardwareSubtitleStyle(style);
                 }
 
-                String text = obj.optString("text", "").trim();
+                String text = obj.optString("text", "").replace("✓", "").trim();
                 if (text.isEmpty()
                         || "في انتظار الترجمات".equals(text)
                         || "الترجمة متوقفة".equals(text)
@@ -636,8 +777,11 @@ public class MainActivity extends Activity {
 
         subtitleBannerBox = new FrameLayout(this);
         boxBackground = new GradientDrawable();
-        boxBackground.setColor(Color.argb(225, 18, 18, 26));
-        boxBackground.setCornerRadius(24f);
+        // خلفية سوداء صافية (#000000) بحدود مربعة حادة (0f) غير مقوسة مثل ترجمة Red Dead
+        boxBackground.setShape(GradientDrawable.RECTANGLE);
+        boxBackground.setColor(Color.argb(217, 0, 0, 0));
+        boxBackground.setCornerRadius(0f);
+        boxBackground.setStroke(0, Color.TRANSPARENT);
         subtitleBannerBox.setBackground(boxBackground);
         subtitleBannerBox.setPadding(36, 16, 36, 16);
         subtitleBannerBox.setVisibility(View.GONE);
@@ -645,11 +789,19 @@ public class MainActivity extends Activity {
         subtitleTextView = new TextView(this);
         subtitleTextView.setText("");
         subtitleTextView.setTextColor(Color.WHITE);
-        subtitleTextView.setTextSize(24);
+        subtitleTextView.setAlpha(1.0f);
+        subtitleTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
         subtitleTextView.setTypeface(strongFont());
         subtitleTextView.setGravity(Gravity.CENTER);
-        // ظل خفيف يزيد وضوح النص فوق أي لعبة
-        subtitleTextView.setShadowLayer(4f, 0f, 2f, Color.BLACK);
+        subtitleTextView.setIncludeFontPadding(false);
+
+        // تعزيز حدة وسطوع النص على التلفاز لمنع أي خفوت أو بهتان في جودة الخط
+        subtitleTextView.setPaintFlags(subtitleTextView.getPaintFlags()
+                | Paint.ANTI_ALIAS_FLAG
+                | Paint.SUBPIXEL_TEXT_FLAG
+                | Paint.LINEAR_TEXT_FLAG);
+        subtitleTextView.getPaint().setFakeBoldText(true);
+        subtitleTextView.setShadowLayer(4.5f, 0f, 2f, Color.argb(240, 0, 0, 0));
 
         subtitleBannerBox.addView(subtitleTextView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -689,27 +841,23 @@ public class MainActivity extends Activity {
         try {
             DisplayMetrics dm = getResources().getDisplayMetrics();
 
+            // 1. تطبيق الخط الحقيقي المختار من الجوال (Tajawal / Cairo / Changa / Almarai)
             String fontFamilyRaw = style.optString("fontFamily", "Tajawal");
             boolean isBold = style.optBoolean("isBold", true);
-            int tfStyle = isBold ? Typeface.BOLD : Typeface.NORMAL;
+            Typeface resolvedTf = resolveRequestedArabicTypeface(fontFamilyRaw, isBold);
+            subtitleTextView.setTypeface(resolvedTf);
+            subtitleTextView.getPaint().setFakeBoldText(isBold);
 
-            String androidFamily = "sans-serif-medium";
-            if (fontFamilyRaw.contains("Cairo")) {
-                androidFamily = "sans-serif-medium";
-            } else if (fontFamilyRaw.contains("Changa")) {
-                androidFamily = "sans-serif-condensed";
-            } else if (fontFamilyRaw.contains("Almarai")) {
-                androidFamily = "serif";
-            }
-            subtitleTextView.setTypeface(Typeface.create(androidFamily, tfStyle));
+            // 2. حجم الخط بوضوح كامل على شاشة التلفاز
+            int fontSize = style.optInt("fontSize", 24);
+            subtitleTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize * 1.22f);
 
-            int fontSize = style.optInt("fontSize", 22);
-            subtitleTextView.setTextSize(fontSize * 1.15f);
-
+            // 3. لون النص وشفافيته الكاملة (255 عند 100%) لمنع أي بهتان أو خفوت
             String textColorStr = style.optString("textColor", "#FFFFFF");
             int textOpacity = style.optInt("textOpacity", 100);
             int parsedTextCol = Color.parseColor(textColorStr);
-            int textAlpha = Math.max(30, Math.min(255, (int) (textOpacity * 2.55f)));
+            int textAlpha = textOpacity >= 99 ? 255 : Math.max(40, Math.min(255, Math.round(textOpacity * 2.55f)));
+            subtitleTextView.setAlpha(1.0f);
             subtitleTextView.setTextColor(Color.argb(
                     textAlpha,
                     Color.red(parsedTextCol),
@@ -717,10 +865,16 @@ public class MainActivity extends Activity {
                     Color.blue(parsedTextCol)
             ));
 
-            String bgColorStr = style.optString("bgColor", "#12121A");
-            int bgOpacity = style.optInt("bgOpacity", 90);
+            // 4. خلفية سوداء صافية (#000000 افتراضياً) بحدود مربعة حادة (0f) مثل ترجمة Red Dead مع إمكانية تخفيفها
+            String bgColorStr = style.optString("bgColor", "#000000");
+            if ("#12121A".equalsIgnoreCase(bgColorStr) || "#0C0C10".equalsIgnoreCase(bgColorStr)) {
+                bgColorStr = "#000000";
+            }
+            int bgOpacity = style.optInt("bgOpacity", 85);
             int parsedBgCol = Color.parseColor(bgColorStr);
-            int bgAlpha = Math.max(0, Math.min(255, (int) (bgOpacity * 2.55f)));
+            int bgAlpha = Math.max(0, Math.min(255, Math.round(bgOpacity * 2.55f)));
+            boxBackground.setCornerRadius(0f);
+            boxBackground.setStroke(0, Color.TRANSPARENT);
             boxBackground.setColor(Color.argb(
                     bgAlpha,
                     Color.red(parsedBgCol),
@@ -728,6 +882,7 @@ public class MainActivity extends Activity {
                     Color.blue(parsedBgCol)
             ));
 
+            // 5. عرض وارتفاع الشريط
             int bgWidthPct = Math.max(35, Math.min(100, style.optInt("bgWidth", 85)));
             int bgHeightPx = Math.max(4, Math.min(48, style.optInt("bgHeight", 14)));
             int newWidthPx = (int) (dm.widthPixels * (bgWidthPct / 100f));
@@ -742,6 +897,7 @@ public class MainActivity extends Activity {
             int padH = (int) (24 * dm.density);
             subtitleBannerBox.setPadding(padH, padV, padH, padV);
 
+            // 6. الموقع الأفقي والعمودي السلس 60fps
             int posX = Math.max(10, Math.min(90, style.optInt("posX", 50)));
             int posY = Math.max(10, Math.min(92, style.optInt("posY", 82)));
 
@@ -780,7 +936,7 @@ public class MainActivity extends Activity {
                 rotateToFreshRoomCode();
             }
         }, 180);
-        Toast.makeText(this, isArabic ? "تم إلغاء الاقتران ✓" : "Unpaired ✓", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, isArabic ? "تم إلغاء الاقتران" : "Unpaired", Toast.LENGTH_SHORT).show();
     }
 
     private void hideOverlayStage() {
@@ -807,6 +963,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        fontDownloadExecutor.shutdownNow();
         uiHandler.removeCallbacks(keepAliveRunnable);
         if (wakeLock != null && wakeLock.isHeld()) {
             try {
