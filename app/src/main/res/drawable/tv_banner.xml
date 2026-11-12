@@ -2,39 +2,54 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="320dp"
     android:height="180dp"
-    android:viewportWidth="320"
-    android:viewportHeight="180">
+    android:viewportWidth="160"
+    android:viewportHeight="90">
 
+    <!-- الخلفية السوداء المطفية لهوية SIYAQ -->
     <path
         android:fillColor="#050507"
-        android:pathData="M0,0H320V180H0Z" />
+        android:pathData="M0,0h160v90h-160z" />
 
+    <!-- إطار خفيف بلون الهوية البرتقالي الذهبي -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#26F5A623"
+        android:strokeWidth="1"
+        android:pathData="M2,2h156v86h-156z" />
+
+    <!-- شعار SIYAQ في المنتصف -->
     <group
-        android:scaleX="1.7"
-        android:scaleY="1.7"
-        android:translateX="75"
-        android:translateY="5">
+        android:translateX="30"
+        android:translateY="-5">
 
+        <!-- حرف S -->
         <path
             android:fillColor="#FFFFFF"
-            android:pathData="M11.1,35.1 L24.5,35.1 L24.5,39.2 L14.2,39.2 L14.2,46.3 L25.5,46.3 L25.5,64.6 L11,64.6 L11,59.2 L21.9,59.2 L21.9,51.4 L11.1,51.4 Z" />
+            android:pathData="M11.1,35.1 L24.5,35.1 L24.5,39.2 L14.2,39.2 L14.2,46.3 L25.5,46.3 L25.5,64.6 L11.0,64.6 L11.0,59.2 L21.9,59.2 L21.9,51.4 L11.1,51.4 Z" />
 
+        <!-- حرف I باللون البرتقالي الذهبي -->
         <path
             android:fillColor="#F5A623"
             android:pathData="M29.5,35.4 L34.1,35.4 L34.1,64.9 L29.5,64.9 Z" />
 
+        <!-- لمعة علوية لحرف I -->
+        <path
+            android:fillColor="#FFD066"
+            android:pathData="M29.5,35.4 L34.1,35.4 L34.1,44.0 L29.5,44.0 Z" />
+
+        <!-- حرف Y -->
         <path
             android:fillColor="#FFFFFF"
             android:pathData="M36.3,35.4 L41.3,35.4 L44.3,42.7 L47.4,35.4 L52.9,35.4 L47.3,46.4 L47.3,64.9 L41.4,64.9 L41.4,46.4 Z" />
 
+        <!-- حرف A -->
         <path
             android:fillColor="#FFFFFF"
-            android:fillType="evenOdd"
-            android:pathData="M54.9,35.5 L68.9,35.5 L68.9,64.9 L64.5,64.9 L64.5,55.9 L59.3,55.9 L59.3,64.9 L54.9,64.9 Z M59.5,40.7 L64.6,40.7 L64.6,51.2 L59.5,51.2 Z" />
+            android:pathData="M54.9,35.5 L68.9,35.5 L68.9,64.9 L64.5,64.9 L64.5,55.9 L59.3,55.9 L59.3,64.9 L54.9,64.9 Z M59.5,40.7 L59.5,51.2 L64.6,51.2 L64.6,40.7 Z" />
 
+        <!-- حرف Q -->
         <path
             android:fillColor="#FFFFFF"
-            android:fillType="evenOdd"
-            android:pathData="M71.7,35.5 L85,35.5 L85,59.8 L89,59.8 L86.1,64.9 L71.7,64.9 Z M74.8,39.2 L80.9,39.2 L80.9,59.8 L74.8,59.8 Z" />
+            android:pathData="M71.7,35.5 L85.0,35.5 L85.0,59.8 L89.0,59.8 L86.1,64.9 L71.7,64.9 Z M74.8,39.2 L74.8,59.8 L80.9,59.8 L80.9,39.2 Z" />
     </group>
 </vector>
