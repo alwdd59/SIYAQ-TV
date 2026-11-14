@@ -1,39 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="180dp"
-    android:height="180dp"
-    android:viewportWidth="100"
-    android:viewportHeight="100">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <path
-        android:fillColor="#050507"
-        android:pathData="M0,0 H100 V100 H0 Z" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
-    <group
-        android:translateX="12"
-        android:translateY="12"
-        android:scaleX="0.76"
-        android:scaleY="0.76">
+    <application
+        android:allowBackup="true"
+        android:icon="@drawable/tv_banner"
+        android:roundIcon="@drawable/tv_banner"
+        android:banner="@drawable/tv_banner"
+        android:label="SIYAQ TV"
+        android:theme="@style/Theme.AppCompat.NoActionBar">
 
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M11.1,35.1 H24.5 V39.2 H14.2 V46.3 H25.5 V64.6 H11.0 V59.2 H21.9 V51.4 H11.1 Z" />
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="landscape">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
 
-        <path
-            android:fillColor="#F5A623"
-            android:pathData="M29.5,35.4 H34.1 V64.9 H29.5 Z" />
+        <service
+            android:name=".MainActivity$OverlaySubtitleService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|mediaProjection" />
 
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M36.3,35.4 H41.3 L44.3,42.7 L47.4,35.4 H52.9 L47.3,46.4 V64.9 H41.4 V46.4 Z" />
-
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M54.9,35.5 H59.5 V64.9 H54.9 Z M64.5,35.5 H68.9 V64.9 H64.5 Z M54.9,35.5 H68.9 V40.7 H54.9 Z M54.9,51.2 H68.9 V55.9 H54.9 Z" />
-
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M71.7,35.5 H74.8 V64.9 H71.7 Z M80.9,35.5 H85.0 V64.9 H80.9 Z M71.7,35.5 H85.0 V39.2 H71.7 Z M71.7,59.8 H89.0 L86.1,64.9 H71.7 Z" />
-    </group>
-
-</vector>
+    </application>
+</manifest>
