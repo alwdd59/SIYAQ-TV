@@ -24,9 +24,10 @@
         </activity>
 
         <service
-            android:name=".MainActivity$UltraCaptureService"
+            android:name=".OverlaySubtitleService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+
     </application>
 </manifest>
