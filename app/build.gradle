@@ -1,10 +1,41 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.siyaq.tv'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.siyaq.tv"
+        minSdk 21
+        targetSdk 34
+        versionCode 2
+        versionName "2.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+
 dependencies {
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.9.22')
     implementation 'androidx.core:core-ktx:1.9.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.1'
-
-    // قارئ النصوص السريع لوضع التلفاز ألترا (متوافق بدون تعارض)
     implementation 'com.google.mlkit:text-recognition:16.0.0'
-    // مولّد رمز QR لشاشة التلفاز
     implementation 'com.google.zxing:core:3.5.1'
 }
